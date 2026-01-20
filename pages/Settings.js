@@ -106,7 +106,7 @@ const Settings = ({ onMenuClick }) => {
     // State for settings
     const [mongoUri, setMongoUri] = useState('mongodb://localhost:27017');
     const [dbName, setDbName] = useState('jellyfin-organizer');
-    const [tmdbApiKey, setTmdbApiKey] = useState('');
+    const [tmdbApiKey, setTmdbApiKey] = useState(() => localStorage.getItem('tmdb_api_key') || '');
     const [tmdbLanguage, setTmdbLanguage] = useState('en-US');
     const [movieRoots, setMovieRoots] = useState(['/mnt/cloud/movies1']);
     const [tvRoots, setTvRoots] = useState(['/mnt/cloud/tvshows']);
@@ -145,12 +145,16 @@ const Settings = ({ onMenuClick }) => {
     const handleSaveAll = useCallback(async () => {
         setIsSaving(true);
         addToast('Saving all settings...', 'info');
-        await new Promise(res => setTimeout(res, 1500));
+        
+        // Save to LocalStorage
+        localStorage.setItem('tmdb_api_key', tmdbApiKey);
+        
+        await new Promise(res => setTimeout(res, 1000));
         setIsSaving(false);
         addToast('All settings saved successfully!', 'success');
         setMongoStatus('idle');
         setTmdbStatus('idle');
-    }, [addToast]);
+    }, [addToast, tmdbApiKey]);
     
     // Memoized handlers for library paths
     const addMoviePath = useCallback((path) => { setMovieRoots(roots => [...roots, path]); }, []);
