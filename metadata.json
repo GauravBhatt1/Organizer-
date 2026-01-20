@@ -1,0 +1,5 @@
+{
+  "name": "Jellyfin Organizer",
+  "description": "An application to organize your Movies and TV Shows for Jellyfin by scanning your library, identifying media with TMDB, and structuring files and folders correctly.",
+  "requestFramePermissions": []
+}

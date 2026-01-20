@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jellyfin Organizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'gray-900': '#121212',
+              'gray-800': '#1E1E1E',
+              'gray-700': '#282828',
+              'gray-600': '#3E3E3E',
+              'brand-purple': '#8A4DFF',
+              'brand-purple-light': '#A070FF',
+            }
+          }
+        }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://jspm.dev/react@18.2.0",
+    "react-dom/client": "https://jspm.dev/react-dom@18.2.0/client",
+    "htm/react": "https://esm.sh/htm@3.1.1/react",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "htm/": "https://esm.sh/htm@^3.1.1/"
+  }
+}
+</script>
+</head>
+  <body class="bg-gray-900">
+    <div id="root"></div>
+    <script type="module" src="./index.js"></script>
+  </body>
+</html>
