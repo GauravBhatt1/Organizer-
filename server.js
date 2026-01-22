@@ -7,6 +7,7 @@ import { execSync } from 'child_process';
 import { MongoClient, ObjectId } from 'mongodb';
 import cors from 'cors';
 import { runScanJob } from './lib/scanner.js';
+import { organizeMediaItem } from './lib/organizer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -183,6 +184,20 @@ app.post('/api/settings', async (req, res) => {
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+    }
+});
+
+// Organization Endpoint
+app.post('/api/organize', async (req, res) => {
+    try {
+        if (!db) return res.status(503).json({ message: 'Database not connected' });
+        
+        // params: sourcePath, type, tmdbData
+        const result = await organizeMediaItem(db, req.body);
+        res.json(result);
+    } catch (e) {
+        console.error("Organization Error:", e);
+        res.status(500).json({ message: e.message });
     }
 });
 

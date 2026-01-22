@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { html } from 'htm/react';
 import Header from '../components/Header.js';
@@ -14,6 +15,7 @@ const Uncategorized = ({ onMenuClick }) => {
     const [loading, setLoading] = useState(true);
     const [selectedItem, setSelectedItem] = useState(null);
     const [isSearching, setIsSearching] = useState(false);
+    const [isOrganizing, setIsOrganizing] = useState(false);
     const [searchResults, setSearchResults] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const { addToast } = useToast();
@@ -60,18 +62,44 @@ const Uncategorized = ({ onMenuClick }) => {
         }
     };
 
-    const handleSelectResult = (result) => {
-        addToast(`Organized '${result.title}' successfully! (Mock Action)`, 'success');
-        if (selectedItem) {
-            setUncategorizedItems(prev => prev.filter(item => item.id !== selectedItem.id));
+    const handleSelectResult = async (result) => {
+        if (!selectedItem) return;
+        
+        setIsOrganizing(true);
+        addToast(`Organizing '${result.title}'...`, 'info');
+
+        try {
+            const res = await fetch('/api/organize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sourcePath: selectedItem.filePath,
+                    type: 'movie', // Default to movie for this view
+                    tmdbData: result
+                })
+            });
+
+            const data = await res.json();
+            
+            if (res.ok) {
+                addToast(`Successfully moved to: ${data.newPath}`, 'success');
+                setUncategorizedItems(prev => prev.filter(item => item.id !== selectedItem.id));
+                closeSearchModal();
+            } else {
+                throw new Error(data.message || 'Unknown error');
+            }
+        } catch (e) {
+            addToast(`Organization Failed: ${e.message}`, 'error');
+        } finally {
+            setIsOrganizing(false);
         }
-        closeSearchModal();
     };
 
     const closeSearchModal = () => {
         setSelectedItem(null);
         setSearchQuery('');
         setSearchResults([]);
+        setIsOrganizing(false);
     };
 
     const modalTitle = selectedItem ? `Identify: ${selectedItem.fileName}` : 'Identify';
@@ -117,15 +145,24 @@ const Uncategorized = ({ onMenuClick }) => {
                             onKeyDown=${(e) => e.key === 'Enter' && handleSearch()}
                             autoFocus
                         />
-                        <${Button} onClick=${handleSearch} isLoading=${isSearching} className="self-end">Search</${Button}>
+                        <${Button} onClick=${handleSearch} isLoading=${isSearching} className="self-end" disabled=${isOrganizing}>Search</${Button}>
                     </div>
 
                     <div className="max-h-96 overflow-y-auto space-y-2 pr-2">
                         ${isSearching && html`<div className="flex justify-center p-8"><${Spinner} /></div>`}
-                        ${!isSearching && searchResults.length === 0 && searchQuery && html`
+                        
+                        ${isOrganizing && html`
+                            <div className="flex flex-col items-center justify-center p-8 text-brand-purple">
+                                <${Spinner} />
+                                <span className="mt-2 text-sm font-semibold">Moving File...</span>
+                            </div>
+                        `}
+
+                        ${!isSearching && !isOrganizing && searchResults.length === 0 && searchQuery && html`
                             <div className="text-center text-gray-500 py-4">No results found</div>
                         `}
-                        ${searchResults.map(result => html`
+
+                        ${!isOrganizing && searchResults.map(result => html`
                             <div key=${result.id} className="flex items-center gap-4 bg-gray-700 p-3 rounded-lg hover:bg-gray-600 transition-colors">
                                 <img src="${result.posterPath ? `https://image.tmdb.org/t/p/w92${result.posterPath}` : 'https://placehold.co/92x138?text=No+Img'}" alt=${result.title} className="w-12 h-auto rounded shadow-sm object-cover"/>
                                 <div className="flex-1">
