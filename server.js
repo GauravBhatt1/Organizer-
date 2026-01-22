@@ -11,34 +11,72 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const CONFIG_FILE = path.join(__dirname, 'config.json');
 
 app.use(cors());
 app.use(express.json());
-
-// Serve static files from the current directory
 app.use(express.static(__dirname));
 
 // --- Security & Constants ---
 const JAIL_PATH = '/host';
 
-// --- MongoDB Setup ---
-const mongoUrl = process.env.MONGO_URL || 'mongodb://mongodb:27017';
-const client = new MongoClient(mongoUrl, { serverSelectionTimeoutMS: 5000 });
-let db;
-
-async function connectDB() {
-  try {
-    await client.connect();
-    db = client.db('jellyfin-organizer');
-    console.log('Connected to MongoDB');
-  } catch (err) {
-    console.error('Mongo connection error, retrying in 5s...', err.message);
-    setTimeout(connectDB, 5000);
-  }
+// --- Configuration Management ---
+function loadConfig() {
+    try {
+        if (fs.existsSync(CONFIG_FILE)) {
+            return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+        }
+    } catch (e) {
+        console.error("Failed to load config file:", e);
+    }
+    return {};
 }
-connectDB();
 
-// Helper to ensure paths stay inside the jail
+function saveConfig(newConfig) {
+    try {
+        const current = loadConfig();
+        const updated = { ...current, ...newConfig };
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(updated, null, 2));
+        return updated;
+    } catch (e) {
+        console.error("Failed to save config file:", e);
+        throw new Error("Could not save configuration locally.");
+    }
+}
+
+// --- MongoDB Setup ---
+let client;
+let db;
+let currentConfig = loadConfig();
+
+async function connectDB(uri) {
+    if (!uri) return;
+    
+    // Close existing connection if any
+    if (client) {
+        try { await client.close(); } catch(e) {}
+    }
+
+    try {
+        // serverSelectionTimeoutMS is crucial for failing fast with bad URIs (Atlas etc)
+        client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
+        await client.connect();
+        
+        const dbName = currentConfig.dbName || 'jellyfin-organizer';
+        db = client.db(dbName);
+        console.log(`Connected to MongoDB: ${dbName}`);
+    } catch (err) {
+        console.error('Mongo connection failed:', err.message);
+        db = null;
+    }
+}
+
+// Attempt initial connection if URI exists
+if (currentConfig.mongoUri) {
+    connectDB(currentConfig.mongoUri);
+}
+
+// --- Helper Functions ---
 const sanitizePath = (requestedPath) => {
   if (!requestedPath) return JAIL_PATH;
   const normalized = path.normalize(requestedPath);
@@ -48,36 +86,88 @@ const sanitizePath = (requestedPath) => {
 
 // --- API Routes ---
 
-// Persistence Routes
-app.get('/api/settings', async (req, res) => {
-  try {
-    if (!db) {
-        return res.status(503).json({ 
-            error: 'DB_NOT_READY', 
-            message: 'Database connection is still initializing. Please wait a few seconds and refresh.' 
-        });
+// 1. Test Mongo Connection (On-demand)
+app.post('/api/mongo/test', async (req, res) => {
+    const { uri } = req.body;
+    if (!uri) return res.status(400).json({ message: 'URI is required' });
+
+    const testClient = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
+    try {
+        await testClient.connect();
+        await testClient.db('admin').command({ ping: 1 });
+        await testClient.close();
+        res.json({ success: true, message: 'Connection Successful!' });
+    } catch (err) {
+        res.status(400).json({ success: false, message: `Connection failed: ${err.message}` });
     }
-    const settings = await db.collection('settings').findOne({ id: 'global' });
-    res.json(settings || {});
-  } catch (err) {
-    console.error('Failed to get settings:', err);
-    res.status(500).json({ error: 'SERVER_ERROR', message: err.message || 'Unknown DB Error' });
-  }
 });
 
+// 2. Get Settings
+app.get('/api/settings', async (req, res) => {
+    // Always return the local config (mongoUri) even if DB is down
+    const localConfig = loadConfig();
+    let dbSettings = {};
+
+    if (db) {
+        try {
+            dbSettings = await db.collection('settings').findOne({ id: 'global' }) || {};
+            // Remove internal ID
+            delete dbSettings._id;
+            delete dbSettings.id;
+        } catch (err) {
+            console.error("Failed to fetch settings from DB:", err);
+        }
+    }
+
+    // Merge: Local config (Mongo URI) + DB Settings
+    res.json({
+        ...dbSettings,
+        mongoUri: localConfig.mongoUri || '',
+        dbName: localConfig.dbName || ''
+    });
+});
+
+// 3. Save Settings
 app.post('/api/settings', async (req, res) => {
-  try {
-    if (!db) return res.status(503).json({ error: 'DB_NOT_READY', message: 'DB not ready' });
-    const result = await db.collection('settings').updateOne(
-      { id: 'global' },
-      { $set: req.body },
-      { upsert: true }
-    );
-    res.json({ success: true, modifiedCount: result.modifiedCount });
-  } catch (err) {
-    console.error('Failed to save settings:', err);
-    res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
-  }
+    const { mongoUri, dbName, ...appSettings } = req.body;
+
+    try {
+        // A. Handle Connection Changes (Local Persistence)
+        const oldConfig = loadConfig();
+        const hasUriChanged = mongoUri && mongoUri !== oldConfig.mongoUri;
+        const hasDbNameChanged = dbName && dbName !== oldConfig.dbName;
+
+        if (hasUriChanged || hasDbNameChanged) {
+            currentConfig = saveConfig({ mongoUri, dbName });
+            if (hasUriChanged) {
+                console.log("Mongo URI changed, reconnecting...");
+                await connectDB(mongoUri);
+            } else if (hasDbNameChanged && client) {
+                // Just switch DB reference if only name changed
+                db = client.db(dbName); 
+            }
+        }
+
+        // B. Handle Application Settings (DB Persistence)
+        if (db) {
+            await db.collection('settings').updateOne(
+                { id: 'global' },
+                { $set: appSettings },
+                { upsert: true }
+            );
+        } else if (!mongoUri) {
+             return res.status(400).json({ 
+                error: 'NO_DB', 
+                message: 'Mongo URI not configured. Open Settings and save Mongo URI.' 
+            });
+        }
+
+        res.json({ success: true });
+
+    } catch (err) {
+        console.error('Failed to save settings:', err);
+        res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+    }
 });
 
 // File System Browsing
@@ -147,7 +237,6 @@ app.get('/api/tmdb/test', async (req, res) => {
   }
 });
 
-// For any other request, serve the index.html (SPA support)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });

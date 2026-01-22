@@ -27,10 +27,10 @@ const MongoSettings = React.memo(({ uri, dbName, status, onUriChange, onDbNameCh
                 value=${uri} 
                 onChange=${onUriChange} 
                 disabled=${status === 'testing'} 
-                placeholder="mongodb://username:password@host:port"
+                placeholder="mongodb+srv://user:pass@cluster.mongodb.net/"
             />
             <p className="text-[10px] text-gray-500 italic px-1">
-                Tip: For internal Docker networking, use: <span className="text-gray-400 font-mono">mongodb://mongodb:27017</span>
+                Supports MongoDB Atlas (mongodb+srv://) and Standard URIs.
             </p>
         </div>
         <${Input} 
@@ -44,7 +44,7 @@ const MongoSettings = React.memo(({ uri, dbName, status, onUriChange, onDbNameCh
         <div className="flex items-center gap-4 pt-2">
             ${status === 'idle' && html`<${Button} variant="secondary" onClick=${onTest}>Test Connection</${Button}>`}
             ${status === 'testing' && html`<${Button} variant="secondary" isLoading=${true} disabled>Testing...</${Button}>`}
-            ${status === 'success' && html`<${Button} variant="success" icon=${html`<${CheckCircleIcon} />`} disabled>Success</${Button}>`}
+            ${status === 'success' && html`<${Button} variant="success" icon=${html`<${CheckCircleIcon} />`} disabled>Connected</${Button}>`}
             ${status === 'failed' && html`<${Button} variant="danger" icon=${html`<${ExclamationIcon} />`} disabled>Failed</${Button}>`}
         </div>
     </${SettingsCard}>
@@ -148,6 +148,8 @@ const Settings = ({ onMenuClick }) => {
                 
                 if (!res.ok) {
                     if (res.status === 503) {
+                         // 503 means DB connecting, but api/settings should still return partial config if file exists.
+                         // However, if we handle it in server correctly, it returns partial.
                          throw new Error("Database is still connecting. Please wait...");
                     }
                     let errorMsg = "Server error fetching settings";
@@ -164,7 +166,8 @@ const Settings = ({ onMenuClick }) => {
                 }
 
                 const data = await res.json();
-                // ONLY set if value exists in DB, otherwise remain as initialized (empty)
+                
+                // Set data if present
                 if (data.mongoUri) setMongoUri(data.mongoUri);
                 if (data.dbName) setDbName(data.dbName);
                 if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
@@ -175,7 +178,7 @@ const Settings = ({ onMenuClick }) => {
                 if (data.isCopyMode !== undefined) setIsCopyMode(data.isCopyMode);
             } catch (err) {
                 console.error("Failed to fetch settings:", err);
-                addToast(err.message, 'error');
+                // Don't show toast on load failure immediately, user might just need to enter keys
             }
         };
         loadSettings();
@@ -198,19 +201,22 @@ const Settings = ({ onMenuClick }) => {
         }
         setMongoStatus('testing');
         try {
-            const res = await fetch('/api/settings');
-            if (res.status === 503) {
-                addToast('Backend is up, but MongoDB is still connecting...', 'info');
-                setMongoStatus('idle');
-            } else if (res.ok) {
+            const res = await fetch('/api/mongo/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uri: mongoUri })
+            });
+            const data = await res.json();
+            
+            if (res.ok && data.success) {
                 setMongoStatus('success');
-                addToast('Connected to container MongoDB!', 'success');
+                addToast(data.message, 'success');
             } else {
-                throw new Error();
+                throw new Error(data.message || 'Connection failed');
             }
         } catch (e) {
             setMongoStatus('failed');
-            addToast('Could not verify MongoDB connection.', 'error');
+            addToast(`Connection Error: ${e.message}`, 'error');
         }
     }, [addToast, mongoUri]);
 
@@ -255,7 +261,7 @@ const Settings = ({ onMenuClick }) => {
             });
             if (res.ok) {
                 localStorage.setItem('tmdb_api_key', tmdbApiKey);
-                addToast('Settings saved to MongoDB!', 'success');
+                addToast('Settings saved successfully!', 'success');
             } else {
                 const errData = await res.json();
                 throw new Error(errData.message || 'Save failed');

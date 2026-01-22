@@ -5,28 +5,12 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
-    depends_on:
-      - mongodb
-    environment:
-      - MONGO_URL=mongodb://mongodb:27017
     volumes:
       # Maps the host root (/) to /host inside the container for browsing
       - ${HOST_ROOT:-/}:/host:rw
     networks:
       - jf-network
 
-  mongodb:
-    image: mongo:latest
-    container_name: jf-mongo
-    restart: unless-stopped
-    volumes:
-      - jf-mongo-data:/data/db
-    networks:
-      - jf-network
-
 networks:
   jf-network:
     driver: bridge
-
-volumes:
-  jf-mongo-data:
