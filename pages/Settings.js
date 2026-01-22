@@ -57,8 +57,8 @@ const TmdbSettings = React.memo(({ apiKey, language, status, onApiKeyChange, onL
         <div className="flex items-center gap-4 pt-2">
             ${status === 'idle' && html`<${Button} variant="secondary" onClick=${onTest} disabled=${!apiKey}>Test TMDB Key</${Button}>`}
             ${status === 'testing' && html`<${Button} variant="secondary" isLoading=${true} disabled>Testing...</${Button}>`}
-            ${status === 'success' && html`<${Button} variant="success" icon=${html`<CheckCircleIcon />`} disabled>Valid</${Button}>`}
-            ${status === 'failed' && html`<${Button} variant="danger" icon=${html`<ExclamationIcon />`} disabled>Invalid</${Button}>`}
+            ${status === 'success' && html`<${Button} variant="success" icon=${html`<${CheckCircleIcon} />`} disabled>Valid</${Button}>`}
+            ${status === 'failed' && html`<${Button} variant="danger" icon=${html`<${ExclamationIcon} />`} disabled>Invalid</${Button}>`}
         </div>
     </${SettingsCard}>
 `);
