@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build: .
@@ -10,9 +8,10 @@ services:
     depends_on:
       - mongodb
     volumes:
-      # Map the host root (or a specific parent) to /host inside the container.
-      # Default is the entire host root (/). 
-      # You can override this in a .env file: HOST_ROOT=/home/ubuntu
+      # BROAD HOST MOUNT
+      # Maps the entire host root (/) to /host inside the container.
+      # This enables the UI Folder Picker to browse the host file system.
+      # Default is '/', but can be overridden via environment variable.
       - ${HOST_ROOT:-/}:/host:rw
     networks:
       - jf-network
