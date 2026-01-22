@@ -15,11 +15,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// --- Security & Constants ---
-const JAIL_PATH = '/host';
+// Request Logger
+app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) {
+        console.log(`[API] ${req.method} ${req.path}`);
+    }
+    next();
+});
 
 // --- Configuration Management ---
 function loadConfig() {
@@ -68,19 +74,21 @@ async function connectDB(uri) {
     }
 }
 
+// Initial connection
 if (currentConfig.mongoUri) {
     connectDB(currentConfig.mongoUri);
 }
 
 const sanitizePath = (requestedPath) => {
-  if (!requestedPath) return JAIL_PATH;
+  if (!requestedPath) return '/host';
   const normalized = path.normalize(requestedPath);
-  if (!normalized.startsWith(JAIL_PATH)) return JAIL_PATH;
+  if (!normalized.startsWith('/host')) return '/host';
   return normalized;
 };
 
-// --- API Routes (Must be defined BEFORE static files) ---
+// ================= API ROUTES =================
 
+// DB Test
 app.post('/api/mongo/test', async (req, res) => {
     try {
         const { uri } = req.body;
@@ -95,7 +103,7 @@ app.post('/api/mongo/test', async (req, res) => {
     }
 });
 
-// TMDB Proxy Endpoints
+// TMDB Proxy
 app.get('/api/tmdb/test', async (req, res) => {
     const apiKey = req.query.key;
     if (!apiKey) return res.status(400).json({ message: 'Missing API Key' });
@@ -103,11 +111,11 @@ app.get('/api/tmdb/test', async (req, res) => {
     try {
         const tmdbUrl = `https://api.themoviedb.org/3/configuration?api_key=${apiKey}`;
         const response = await fetch(tmdbUrl);
-        const data = await response.json();
         
         if (response.ok) {
             res.json({ success: true, status_code: response.status, message: 'Connection Successful' });
         } else {
+            const data = await response.json();
             res.status(response.status).json({ success: false, status_code: response.status, message: data.status_message || 'Invalid API Key' });
         }
     } catch (error) {
@@ -138,6 +146,7 @@ app.get('/api/tmdb/search', async (req, res) => {
     }
 });
 
+// Settings
 app.get('/api/settings', async (req, res) => {
     try {
         const localConfig = loadConfig();
@@ -145,9 +154,11 @@ app.get('/api/settings', async (req, res) => {
         if (db) {
             try {
                 const result = await db.collection('settings').findOne({ id: 'global' });
-                if (result) dbSettings = result;
-                if (dbSettings._id) delete dbSettings._id;
-                if (dbSettings.id) delete dbSettings.id;
+                if (result) {
+                    dbSettings = result;
+                    delete dbSettings._id;
+                    delete dbSettings.id;
+                }
             } catch (err) { console.warn("DB settings fetch failed:", err.message); }
         }
         res.json({ ...dbSettings, mongoUri: localConfig.mongoUri || '', dbName: localConfig.dbName || '' });
@@ -175,8 +186,7 @@ app.post('/api/settings', async (req, res) => {
     }
 });
 
-// --- SCANNING ---
-
+// Scan Jobs
 app.post('/api/scan/start', async (req, res) => {
     try {
         if (!db) return res.status(503).json({ message: 'Database not connected' });
@@ -219,8 +229,7 @@ app.get('/api/scan/current', async (req, res) => {
     } catch (e) { res.json(null); }
 });
 
-// --- DATA ---
-
+// Dashboard Data
 app.get('/api/dashboard', async (req, res) => {
     try {
         if (!db) return res.json({ movies: 0, tvShows: 0, uncategorized: 0 });
@@ -308,7 +317,7 @@ app.get('/api/uncategorized', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// FS
+// File System Routes
 app.get('/api/fs/list', (req, res) => {
   const requestPath = sanitizePath(req.query.path);
   try {
@@ -319,7 +328,7 @@ app.get('/api/fs/list', (req, res) => {
       .filter(item => item.isDirectory())
       .map(item => ({ name: item.name, path: path.join(requestPath, item.name), isDir: true }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    res.json({ currentPath: requestPath, parentPath: requestPath === JAIL_PATH ? null : path.dirname(requestPath), items });
+    res.json({ currentPath: requestPath, parentPath: requestPath === '/host' ? null : path.dirname(requestPath), items });
   } catch (error) { res.status(500).json({ message: 'FS Error: ' + error.message }); }
 });
 
@@ -336,15 +345,22 @@ app.get('/api/fs/validate', (req, res) => {
   } catch (error) { res.json({ valid: false, message: error.message }); }
 });
 
-// --- Static Files (Serve ONLY after API routes) ---
+// API 404 Fallback
+app.use('/api/*', (req, res) => {
+    res.status(404).json({ error: 'API endpoint not found', path: req.originalUrl });
+});
+
+// ================= STATIC FILES & SPA =================
+
+// Serve Static Files (AFTER API routes to prevent shadowing)
 app.use(express.static(__dirname));
 
-// Fallback for SPA
+// SPA Fallback (Last Route)
 app.get('*', (req, res) => { 
     res.sendFile(path.join(__dirname, 'index.html')); 
 });
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Broad Host Access mounted at: ${JAIL_PATH}`);
+  console.log(`Host Access mounted at: /host`);
 });

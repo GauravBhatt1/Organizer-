@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
 import { html } from 'htm/react';
 import Header from '../components/Header.js';
@@ -140,35 +141,39 @@ const Settings = ({ onMenuClick }) => {
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
+        let isMounted = true;
         const loadSettings = async () => {
             try {
                 const res = await fetch('/api/settings');
+                const contentType = res.headers.get("content-type");
                 
-                // If the response is not OK, we throw, but we should inspect what happened
+                if (!contentType || !contentType.includes("application/json")) {
+                    console.warn("Settings API returned non-JSON. Skipping load.");
+                    return;
+                }
+
                 if (!res.ok) {
-                    const text = await res.text().catch(() => '');
-                    console.error(`Fetch failed: ${res.status} ${res.statusText}`, text);
-                    if (res.status === 503) throw new Error("Database connecting...");
-                    throw new Error(`Server returned ${res.status}: ${res.statusText}`);
+                    throw new Error(`Server returned ${res.status}`);
                 }
                 
                 const data = await res.json();
                 
-                if (data.mongoUri) setMongoUri(data.mongoUri);
-                if (data.dbName) setDbName(data.dbName);
-                if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
-                if (data.tmdbLanguage) setTmdbLanguage(data.tmdbLanguage);
-                if (data.movieRoots) setMovieRoots(data.movieRoots);
-                if (data.tvRoots) setTvRoots(data.tvRoots);
-                if (data.mountSafety !== undefined) setMountSafety(data.mountSafety);
-                if (data.isCopyMode !== undefined) setIsCopyMode(data.isCopyMode);
+                if (isMounted) {
+                    if (data.mongoUri) setMongoUri(data.mongoUri);
+                    if (data.dbName) setDbName(data.dbName);
+                    if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
+                    if (data.tmdbLanguage) setTmdbLanguage(data.tmdbLanguage);
+                    if (data.movieRoots) setMovieRoots(data.movieRoots);
+                    if (data.tvRoots) setTvRoots(data.tvRoots);
+                    if (data.mountSafety !== undefined) setMountSafety(data.mountSafety);
+                    if (data.isCopyMode !== undefined) setIsCopyMode(data.isCopyMode);
+                }
             } catch (err) {
                 console.error("Failed to fetch settings:", err);
-                // We do NOT toast here automatically to avoid spamming user if API is initializing.
-                // Just let the form be empty or hold defaults.
             }
         };
         loadSettings();
+        return () => { isMounted = false; };
     }, []);
     
     const handleMongoUriChange = useCallback((e) => {
@@ -193,6 +198,10 @@ const Settings = ({ onMenuClick }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ uri: mongoUri })
             });
+            const contentType = res.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Server Error: Non-JSON response");
+            }
             const data = await res.json();
             
             if (res.ok && data.success) {
@@ -223,8 +232,10 @@ const Settings = ({ onMenuClick }) => {
         for (const p of allPaths) {
             try {
                 const res = await fetch(`/api/fs/validate?path=${encodeURIComponent(p)}&mountSafety=${mountSafety}`);
-                const data = await res.json();
-                if (data.valid) successCount++;
+                if (res.headers.get("content-type")?.includes("application/json")) {
+                    const data = await res.json();
+                    if (data.valid) successCount++;
+                }
             } catch (e) {}
         }
 
@@ -246,6 +257,12 @@ const Settings = ({ onMenuClick }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
             });
+            
+            const contentType = res.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Server returned non-JSON response");
+            }
+
             if (res.ok) {
                 localStorage.setItem('tmdb_api_key', tmdbApiKey);
                 addToast('Settings saved successfully!', 'success');
