@@ -4,9 +4,12 @@ import PosterGrid from '../components/PosterGrid.tsx';
 import PosterCard from '../components/PosterCard.tsx';
 import Modal from '../components/Modal.tsx';
 import Spinner from '../components/Spinner.tsx';
-import type { MediaItem } from '../types.ts';
 import Button from '../components/Button.tsx';
-
+import Input from '../components/Input.tsx';
+import { SearchIcon } from '../lib/icons.tsx';
+import { useToast } from '../hooks/useToast.tsx';
+import { searchTvShows } from '../lib/tmdb.ts';
+import type { MediaItem, TmdbSearchResult } from '../types.ts';
 
 const MOCK_TV_SHOWS: MediaItem[] = [
   { id: 1, title: 'Game of Thrones', year: 2011, posterPath: '/u3bZgnGQ9T01sWNhyveQz0wz0IL.jpg', overview: 'Seven noble families fight for control of the mythical land of Westeros. Friction between the houses leads to full-scale war.', filePath: '/mnt/cloud/tvshows/Game of Thrones/' },
@@ -20,14 +23,140 @@ interface TvShowsProps {
 }
 
 const TvShows: React.FC<TvShowsProps> = ({ onMenuClick }) => {
+    const [shows, setShows] = useState<MediaItem[]>(MOCK_TV_SHOWS);
     const [selectedShow, setSelectedShow] = useState<MediaItem | null>(null);
+    
+    // Re-Identify State
+    const [isReIdentifying, setIsReIdentifying] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<TmdbSearchResult[]>([]);
+    const [isSearchingTMDB, setIsSearchingTMDB] = useState(false);
+
+    const { addToast } = useToast();
 
     const handleCardClick = (show: MediaItem) => {
         setSelectedShow(show);
+        setIsReIdentifying(false);
+        setSearchResults([]);
     };
 
     const handleCloseModal = () => {
         setSelectedShow(null);
+        setIsReIdentifying(false);
+        setSearchResults([]);
+    };
+
+    // --- Re-Identify Handlers ---
+    const handleReIdentifyClick = () => {
+        if (!selectedShow) return;
+        setIsReIdentifying(true);
+        setSearchQuery(selectedShow.title);
+        setSearchResults([]);
+    };
+
+    const handleSearch = async () => {
+        if (!searchQuery.trim()) return;
+        setIsSearchingTMDB(true);
+        
+        try {
+            const apiKey = localStorage.getItem('tmdb_api_key');
+            if (!apiKey) {
+                // For testing purposes, we allow searching even without a key if using the mock, 
+                // but let's warn the user to set it anyway.
+                addToast('Tip: Set TMDB API Key in Settings', 'info');
+            }
+
+            // Using "mock-key" if none is present to satisfy the function signature
+            const results = await searchTvShows(searchQuery, apiKey || 'mock-key');
+            setSearchResults(results);
+        } catch (error) {
+            console.error(error);
+            addToast('Failed to search TMDB', 'error');
+            setSearchResults([]);
+        } finally {
+            setIsSearchingTMDB(false);
+        }
+    };
+
+    const handleSelectResult = (result: TmdbSearchResult) => {
+        if (!selectedShow) return;
+        const updatedDetails = {
+            title: result.title,
+            year: result.year,
+            posterPath: result.posterPath,
+            overview: result.overview
+        };
+        setShows(prev => prev.map(s => s.id === selectedShow.id ? { ...s, ...updatedDetails } : s));
+        setSelectedShow(prev => prev ? { ...prev, ...updatedDetails } : null);
+        setIsReIdentifying(false);
+        addToast('TV Show re-identified successfully', 'success');
+    };
+
+    const handleCancelReIdentify = () => {
+        setIsReIdentifying(false);
+        setSearchResults([]);
+    };
+
+    const renderContent = () => {
+        if (!selectedShow) return null;
+
+        if (isReIdentifying) {
+            return (
+                <div className="space-y-4 h-full flex flex-col">
+                    <div className="flex gap-2">
+                        <Input 
+                            label="Search TMDB" 
+                            id="tmdb-search-input-tv" 
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                            placeholder="Enter TV show title..."
+                            autoFocus
+                        />
+                        <Button onClick={handleSearch} isLoading={isSearchingTMDB} className="self-end" icon={<SearchIcon />}>Search</Button>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto space-y-2 min-h-[200px] bg-gray-900/50 p-2 rounded-lg border border-gray-700">
+                        {searchResults.length === 0 && !isSearchingTMDB && (
+                            <div className="flex h-full items-center justify-center text-gray-500 text-sm">
+                                Enter a title to search TMDB
+                            </div>
+                        )}
+                        {searchResults.map(result => (
+                            <div key={result.id} className="flex items-center gap-3 bg-gray-700 p-2 rounded-lg hover:bg-gray-600 transition-colors">
+                                <img src={result.posterPath ? `https://image.tmdb.org/t/p/w92${result.posterPath}` : 'https://placehold.co/92x138?text=No+Img'} alt={result.title} className="w-10 h-auto rounded shadow-sm object-cover"/>
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-bold text-white text-sm truncate">{result.title}</p>
+                                    <p className="text-xs text-gray-400">{result.year}</p>
+                                </div>
+                                <Button variant="primary" className="text-xs py-1 px-3" onClick={() => handleSelectResult(result)}>Select</Button>
+                            </div>
+                        ))}
+                         {isSearchingTMDB && <div className="flex justify-center p-4"><Spinner size="md"/></div>}
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                         <Button variant="secondary" onClick={handleCancelReIdentify}>Cancel</Button>
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <>
+                <p className="text-gray-300 leading-relaxed">{selectedShow.overview}</p>
+                <div className="mt-4">
+                   <h4 className="font-bold text-white text-sm uppercase tracking-wide mb-1">Root Folder</h4>
+                   <div className="bg-gray-900/50 border border-gray-700 p-3 rounded-lg">
+                        <p className="text-xs text-gray-400 font-mono break-all">{selectedShow.filePath}</p>
+                   </div>
+                </div>
+                <div className="flex gap-4 pt-6 mt-auto">
+                   <Button variant="primary" onClick={handleReIdentifyClick} icon={<SearchIcon />}>Re-Identify</Button>
+                   <Button variant="secondary">View Seasons</Button>
+                </div>
+            </>
+        );
     };
     
     return (
@@ -35,28 +164,22 @@ const TvShows: React.FC<TvShowsProps> = ({ onMenuClick }) => {
             <Header title="Organized TV Shows" onMenuClick={onMenuClick} />
             <div className="p-6 overflow-y-auto">
                 <PosterGrid>
-                    {MOCK_TV_SHOWS.map(show => (
+                    {shows.map(show => (
                         <PosterCard key={show.id} item={show} onClick={() => handleCardClick(show)} />
                     ))}
                 </PosterGrid>
             </div>
 
-            <Modal isOpen={!!selectedShow} onClose={handleCloseModal} title={selectedShow?.title || ''}>
+            <Modal isOpen={!!selectedShow} onClose={handleCloseModal} title={isReIdentifying ? `Identify: ${selectedShow?.title}` : (selectedShow?.title || '')}>
                 {selectedShow ? (
-                    <div className="flex flex-col md:flex-row gap-6">
+                    <div className="flex flex-col md:flex-row gap-6 h-full">
                         <div className="md:w-1/3 flex-shrink-0">
-                            <img src={`https://image.tmdb.org/t/p/w500${selectedShow.posterPath}`} alt={selectedShow.title} className="rounded-lg w-full"/>
+                            <div className="relative aspect-[2/3] w-full rounded-lg overflow-hidden shadow-lg">
+                                <img src={`https://image.tmdb.org/t/p/w500${selectedShow.posterPath}`} alt={selectedShow.title} className="w-full h-full object-cover"/>
+                            </div>
                         </div>
-                        <div className="md:w-2/3 space-y-4">
-                            <p className="text-gray-300">{selectedShow.overview}</p>
-                            <div>
-                               <h4 className="font-bold text-white">Root Folder</h4>
-                               <p className="text-sm text-gray-400 bg-gray-700 p-2 rounded-md font-mono break-all">{selectedShow.filePath}</p>
-                            </div>
-                            <div className="flex gap-4 pt-4">
-                               <Button variant="primary">Re-Identify</Button>
-                               <Button variant="secondary">View Seasons</Button>
-                            </div>
+                        <div className="md:w-2/3 flex flex-col">
+                            {renderContent()}
                         </div>
                     </div>
                 ) : (

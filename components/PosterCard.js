@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { html } from 'htm/react';
 import { EditIcon } from '../lib/icons.js';
@@ -7,20 +8,22 @@ const PosterCard = ({ item, onClick }) => {
 
   return html`
     <div 
-      className="bg-gray-800 rounded-lg overflow-hidden cursor-pointer group relative transition-transform duration-300 ease-in-out hover:scale-105"
+      className="flex flex-col gap-2 cursor-pointer group"
       onClick=${onClick}
     >
-      <img src=${imageUrl} alt=${item.title} className="w-full h-auto aspect-[2/3] object-cover" />
-      <div className="absolute inset-0 bg-black bg-opacity-70 flex flex-col justify-end p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-        <h3 className="text-white font-bold text-lg">${item.title}</h3>
-        <p className="text-gray-300 text-sm">${item.year}</p>
-        <div className="absolute top-2 right-2 p-2 bg-gray-900 bg-opacity-50 rounded-full">
-            <${EditIcon} className="w-5 h-5"/>
+      <div className="relative rounded-xl overflow-hidden shadow-lg bg-gray-800 aspect-[2/3] transition-transform duration-300 ease-in-out group-hover:scale-[1.02] group-hover:shadow-brand-purple/20">
+        <img src=${imageUrl} alt=${item.title} className="w-full h-full object-cover" />
+        
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[2px]">
+            <div className="bg-white/10 p-3 rounded-full backdrop-blur-md border border-white/20 transform scale-90 group-hover:scale-100 transition-transform duration-300">
+                <${EditIcon} className="w-6 h-6 text-white"/>
+            </div>
         </div>
       </div>
-       <div className="p-3 bg-gray-800 group-hover:hidden">
-        <h3 className="text-white font-semibold truncate">${item.title}</h3>
-        <p className="text-gray-400 text-sm">${item.year}</p>
+      
+      <div className="px-1">
+        <h3 className="text-white font-semibold truncate text-base group-hover:text-brand-purple transition-colors">${item.title}</h3>
+        <p className="text-gray-500 text-sm font-medium">${item.year}</p>
       </div>
     </div>
   `;

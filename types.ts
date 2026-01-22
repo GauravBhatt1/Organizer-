@@ -20,6 +20,7 @@ export interface TmdbSearchResult {
   title: string;
   year: number;
   posterPath: string;
+  overview: string;
 }
 
 export interface ScanJob {

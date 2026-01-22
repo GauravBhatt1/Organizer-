@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo } from 'react';
 import { html } from 'htm/react';
 import Sidebar from './components/Sidebar.js';
@@ -11,10 +12,12 @@ import { ToastProvider } from './hooks/useToast.js';
 const App = () => {
   const [currentPage, setCurrentPage] = useState('Settings');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  const uncategorizedCount = 3; 
 
   const handleSetCurrentPage = (page) => {
     setCurrentPage(page);
-    setIsSidebarOpen(false); // Automatically hide sidebar on navigation
+    setIsSidebarOpen(false);
   };
 
   const toggleSidebar = useCallback(() => {
@@ -22,7 +25,11 @@ const App = () => {
   }, []);
 
   const pageComponent = useMemo(() => {
-    const pageProps = { onMenuClick: toggleSidebar };
+    const pageProps = { 
+        onMenuClick: toggleSidebar,
+        onSettingsClick: () => handleSetCurrentPage('Settings')
+    };
+
     switch (currentPage) {
       case 'Dashboard':
         return html`<${Dashboard} ...${pageProps} />`;
@@ -41,16 +48,20 @@ const App = () => {
 
   return html`
     <${ToastProvider}>
-      <div className="flex h-screen bg-gray-900 text-gray-200 font-sans overflow-hidden">
+      <div className="h-full bg-[#0b0f14] text-gray-200 font-sans">
         <${Sidebar} 
           currentPage=${currentPage} 
           setCurrentPage=${handleSetCurrentPage}
           isOpen=${isSidebarOpen}
           setIsOpen=${setIsSidebarOpen}
+          uncategorizedCount=${uncategorizedCount}
         />
-        <main className="flex-1 flex flex-col overflow-y-auto">
-          ${pageComponent}
-        </main>
+        
+        <div className="lg:pl-72 flex flex-col h-full transition-all duration-300">
+          <main className="flex-1 overflow-y-auto">
+            ${pageComponent}
+          </main>
+        </div>
       </div>
     </${ToastProvider}>
   `;

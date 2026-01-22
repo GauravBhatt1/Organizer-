@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import { html } from 'htm/react';
 import Header from '../components/Header.js';
@@ -8,10 +9,10 @@ import { PlusIcon, TrashIcon, CheckCircleIcon, ExclamationIcon } from '../lib/ic
 import { useToast } from '../hooks/useToast.js';
 import { testTmdbApiKey } from '../lib/tmdb.js';
 
-const SettingsCard = ({title, children}) => html`
-    <div className="bg-gray-800 p-6 rounded-lg shadow-md">
-        <h2 className="text-xl font-bold mb-4 border-b border-gray-700 pb-2">${title}</h2>
-        <div className="space-y-4">
+const SettingsCard = ({title, children, className = ''}) => html`
+    <div className=${`bg-gray-800 p-6 rounded-lg shadow-md border border-gray-700/50 ${className}`}>
+        <h2 className="text-xl font-bold mb-6 border-b border-gray-700 pb-3 text-white">${title}</h2>
+        <div className="space-y-6">
             ${children}
         </div>
     </div>
@@ -32,9 +33,9 @@ const AddPathInput = React.memo(({ label, id, onAdd, placeholder }) => {
         }
     }, [handleAdd]);
     return html`
-        <div className="flex gap-2">
+        <div className="flex gap-3 items-end">
             <${Input} label=${label} id=${id} value=${path} onChange=${e => setPath(e.target.value)} onKeyDown=${handleKeyDown} placeholder=${placeholder} />
-            <${Button} onClick=${handleAdd} className="self-end" disabled=${!path.trim()} aria-label=${`Add ${label}`}><${PlusIcon} /></${Button}>
+            <${Button} onClick=${handleAdd} className="h-[42px] w-[42px] !p-0 flex items-center justify-center shrink-0 mb-[1px]" disabled=${!path.trim()} aria-label=${`Add ${label}`}><${PlusIcon} /></${Button}>
         </div>
     `;
 });
@@ -43,7 +44,7 @@ const MongoSettings = React.memo(({ uri, dbName, status, onUriChange, onDbNameCh
     <${SettingsCard} title="MongoDB Settings">
         <${Input} label="Mongo URI" id="mongo-uri" value=${uri} onChange=${onUriChange} disabled=${status === 'testing'} />
         <${Input} label="Database Name" id="db-name" value=${dbName} onChange=${onDbNameChange} disabled=${status === 'testing'} />
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 pt-2">
             ${status === 'idle' && html`<${Button} variant="secondary" onClick=${onTest}>Test Connection</${Button}>`}
             ${status === 'testing' && html`<${Button} variant="secondary" isLoading=${true} disabled>Testing...</${Button}>`}
             ${status === 'success' && html`<${Button} variant="success" icon=${html`<${CheckCircleIcon} />`} disabled>Success</${Button}>`}
@@ -53,10 +54,10 @@ const MongoSettings = React.memo(({ uri, dbName, status, onUriChange, onDbNameCh
 `);
 
 const TmdbSettings = React.memo(({ apiKey, language, status, onApiKeyChange, onLanguageChange, onTest }) => html`
-    <${SettingsCard} title="TMDB Settings">
+    <${SettingsCard} title="TMDB Settings" className="border-brand-purple/30 shadow-[0_0_15px_rgba(138,77,255,0.05)]">
         <${Input} label="TMDB API Key" id="tmdb-key" type="password" value=${apiKey} onChange=${onApiKeyChange} disabled=${status === 'testing'} />
         <${Input} label="Language" id="tmdb-lang" value=${language} onChange=${onLanguageChange} disabled=${status === 'testing'} />
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 pt-2">
             ${status === 'idle' && html`<${Button} variant="secondary" onClick=${onTest} disabled=${!apiKey}>Test TMDB Key</${Button}>`}
             ${status === 'testing' && html`<${Button} variant="secondary" isLoading=${true} disabled>Testing...</${Button}>`}
             ${status === 'success' && html`<${Button} variant="success" icon=${html`<${CheckCircleIcon} />`} disabled>Valid</${Button}>`}
@@ -68,37 +69,52 @@ const TmdbSettings = React.memo(({ apiKey, language, status, onApiKeyChange, onL
 const LibrarySettings = React.memo(({ movieRoots, tvRoots, mountSafety, isCopyMode, onAddMoviePath, onAddTvPath, onRemovePath, onSetMountSafety, onSetIsCopyMode }) => html`
     <${SettingsCard} title="Library Settings">
         <div>
-            <h3 className="font-semibold text-lg mb-2">Movie Root Folders</h3>
-            <ul className="space-y-2 mb-2">
+            <h3 className="font-semibold text-sm uppercase tracking-wide text-gray-400 mb-3">Movie Root Folders</h3>
+            <ul className="space-y-3 mb-4">
                 ${movieRoots.map((path, i) => html`
-                    <li key=${`movie-${i}`} className="flex items-center gap-2 bg-gray-700 p-2 rounded">
-                        <span className="flex-1 font-mono text-sm break-all">${path}</span>
-                        <button onClick=${() => onRemovePath('movie', i)} className="text-red-400 hover:text-red-300 p-1" aria-label=${`Remove movie path ${path}`}><${TrashIcon} /></button>
+                    <li key=${`movie-${i}`} className="flex items-center gap-3 bg-gray-900/50 border border-gray-700 p-3 rounded-lg group transition-colors hover:border-gray-600">
+                        <span className="flex-1 font-mono text-sm text-gray-300 break-all">${path}</span>
+                        <button 
+                            onClick=${() => onRemovePath('movie', i)} 
+                            className="text-gray-500 hover:text-red-400 p-2 rounded-md hover:bg-red-500/10 transition-colors" 
+                            aria-label=${`Remove movie path ${path}`}
+                        >
+                            <${TrashIcon} className="w-5 h-5" />
+                        </button>
                     </li>
                 `)}
+                 ${movieRoots.length === 0 && html`<li className="text-gray-500 text-sm italic p-2">No paths added yet.</li>`}
             </ul>
             <${AddPathInput} label="Add Movie Path" id="new-movie-path" onAdd=${onAddMoviePath} placeholder="/path/to/movies" />
         </div>
-        <div>
-            <h3 className="font-semibold text-lg mb-2">TV Show Root Folders</h3>
-            <ul className="space-y-2 mb-2">
+        <div className="pt-2">
+            <h3 className="font-semibold text-sm uppercase tracking-wide text-gray-400 mb-3">TV Show Root Folders</h3>
+            <ul className="space-y-3 mb-4">
                 ${tvRoots.map((path, i) => html`
-                    <li key=${`tv-${i}`} className="flex items-center gap-2 bg-gray-700 p-2 rounded">
-                        <span className="flex-1 font-mono text-sm break-all">${path}</span>
-                        <button onClick=${() => onRemovePath('tv', i)} className="text-red-400 hover:text-red-300 p-1" aria-label=${`Remove TV show path ${path}`}><${TrashIcon} /></button>
+                    <li key=${`tv-${i}`} className="flex items-center gap-3 bg-gray-900/50 border border-gray-700 p-3 rounded-lg group transition-colors hover:border-gray-600">
+                        <span className="flex-1 font-mono text-sm text-gray-300 break-all">${path}</span>
+                        <button 
+                            onClick=${() => onRemovePath('tv', i)} 
+                            className="text-gray-500 hover:text-red-400 p-2 rounded-md hover:bg-red-500/10 transition-colors" 
+                            aria-label=${`Remove TV show path ${path}`}
+                        >
+                            <${TrashIcon} className="w-5 h-5" />
+                        </button>
                     </li>
                 `)}
+                ${tvRoots.length === 0 && html`<li className="text-gray-500 text-sm italic p-2">No paths added yet.</li>`}
             </ul>
             <${AddPathInput} label="Add TV Show Path" id="new-tv-path" onAdd=${onAddTvPath} placeholder="/path/to/tv-shows" />
         </div>
-        <div className="border-t border-gray-700 pt-4 space-y-4">
-            <${Toggle} label="Mount Safety Mode" enabled=${mountSafety} setEnabled=${onSetMountSafety} />
+        <div className="border-t border-gray-700 pt-6 space-y-6 mt-2">
+            <${Toggle} label="Mount Safety Mode (Prevent accidental deletions)" enabled=${mountSafety} setEnabled=${onSetMountSafety} />
             <${Toggle} label="Use Copy instead of Move" enabled=${isCopyMode} setEnabled=${onSetIsCopyMode} />
-            <${Button} variant="secondary">Test Mounts</${Button}>
+            <div className="pt-2">
+                 <${Button} variant="secondary" className="w-full sm:w-auto">Test Mount Permissions</${Button}>
+            </div>
         </div>
     </${SettingsCard}>
 `);
-
 
 const Settings = ({ onMenuClick }) => {
     const { addToast } = useToast();
@@ -170,16 +186,8 @@ const Settings = ({ onMenuClick }) => {
     return html`
         <div className="flex flex-col h-full">
             <${Header} title="Settings" onMenuClick=${onMenuClick} actionButton=${html`<${Button} onClick=${handleSaveAll} isLoading=${isSaving}>Save Changes</${Button}>`} />
-            <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto">
+            <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto max-w-[1920px] mx-auto w-full">
                 <div className="space-y-6">
-                    <${MongoSettings} 
-                        uri=${mongoUri} 
-                        dbName=${dbName} 
-                        status=${mongoStatus} 
-                        onUriChange=${handleMongoUriChange} 
-                        onDbNameChange=${handleDbNameChange} 
-                        onTest=${handleTestMongo} 
-                    />
                     <${TmdbSettings}
                         apiKey=${tmdbApiKey}
                         language=${tmdbLanguage}
@@ -187,6 +195,14 @@ const Settings = ({ onMenuClick }) => {
                         onApiKeyChange=${handleTmdbApiKeyChange}
                         onLanguageChange=${handleTmdbLanguageChange}
                         onTest=${handleTestTmdb}
+                    />
+                    <${MongoSettings} 
+                        uri=${mongoUri} 
+                        dbName=${dbName} 
+                        status=${mongoStatus} 
+                        onUriChange=${handleMongoUriChange} 
+                        onDbNameChange=${handleDbNameChange} 
+                        onTest=${handleTestMongo} 
                     />
                 </div>
                 <${LibrarySettings}

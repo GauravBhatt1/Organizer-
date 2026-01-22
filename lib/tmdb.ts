@@ -1,16 +1,9 @@
-import type { TmdbTestResult } from '../types.ts';
+import type { TmdbTestResult, TmdbSearchResult } from '../types.ts';
 
-const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
-/**
- * Performs a live, official validation of a TMDB API key or v4 token.
- * This function makes a real network call to the TMDB API and determines
- * the key's validity based on the HTTP response.
- *
- * @param apiKey - The TMDB v3 key or v4 Read Access Token.
- * @returns A promise resolving to a detailed test result object.
- */
 export const testTmdbApiKey = async (apiKey: string): Promise<TmdbTestResult> => {
+  // 1. Safai: Key ke aage peeche ki spaces hatana
   const trimmedKey = apiKey.trim();
 
   if (!trimmedKey) {
@@ -23,83 +16,91 @@ export const testTmdbApiKey = async (apiKey: string): Promise<TmdbTestResult> =>
     };
   }
 
-  // 1) Detect key type
-  const keyType = /^[a-f0-9]{32}$/.test(trimmedKey) ? 'v3' : 'v4';
-  
-  // FIX: The `fetch` API takes the URL as its first argument, not as a property of the `options` object.
-  // This was causing a TypeScript error because `RequestInit` does not have a `url` property.
-  // The code has been refactored to build the `requestUrl` separately and pass it correctly to `fetch`.
-  const baseUrl = `${TMDB_API_BASE_URL}/configuration`;
-  let requestUrl: string;
-  const options: RequestInit = {
-    method: 'GET',
-    headers: {},
-  };
-
-  // 2) Prepare the request based on key type
-  if (keyType === 'v3') {
-    requestUrl = `${baseUrl}?api_key=${trimmedKey}`;
-  } else {
-    requestUrl = baseUrl;
-    options.headers = {
-      'Authorization': `Bearer ${trimmedKey}`,
-      'Content-Type': 'application/json;charset=utf-8',
-    };
-  }
-
-  // 3) Set up timeout controller
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2000);
-  options.signal = controller.signal;
-
   try {
-    const response = await fetch(requestUrl, options);
-    clearTimeout(timeoutId);
+    // 2. Direct Call: Seedha TMDB ko call lagana
+    // Hum "Bearer Token" nahi, balki "?api_key=" use karenge jo aapki keys ke liye sahi hai.
+    const url = `${TMDB_BASE_URL}/configuration?api_key=${trimmedKey}`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
 
-    // 4) Map result from HTTP status code
-    if (response.status === 200) {
+    // 3. Result Check
+    if (response.ok) {
+      // Agar status 200 hai, matlab key sahi hai
       return {
         ok: true,
         status: 'VALID',
-        type: keyType,
+        type: 'v3',
         httpStatus: response.status,
-        message: `TMDB ${keyType.toUpperCase()} key is valid!`,
+        message: 'Success! TMDB Connected.',
       };
-    } else if (response.status === 401 || response.status === 403) {
-      const data = await response.json().catch(() => ({}));
+    } else {
+      // Agar status 401 ya 404 hai, matlab key galat hai
       return {
         ok: false,
         status: 'INVALID',
-        type: keyType,
+        type: null,
         httpStatus: response.status,
-        message: data.status_message || 'Invalid credentials.',
-      };
-    } else {
-      return {
-        ok: false,
-        status: 'FAILED',
-        type: keyType,
-        httpStatus: response.status,
-        message: `Test failed. TMDB returned HTTP ${response.status}.`,
+        message: data.status_message || 'Invalid API Key.',
       };
     }
-  } catch (error: any) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      return {
-        ok: false,
-        status: 'FAILED',
-        type: keyType,
-        httpStatus: null,
-        message: 'Test failed: Request timed out after 2 seconds.',
-      };
-    }
+
+  } catch (error) {
+    // 4. Network Error (Internet issue ya AdBlocker)
+    console.error("TMDB Error:", error);
     return {
-      ok: false,
-      status: 'FAILED',
-      type: keyType,
-      httpStatus: null,
-      message: 'Test failed: Network error or could not connect to TMDB.',
+        ok: false,
+        status: 'FAILED',
+        type: null,
+        httpStatus: 0,
+        message: 'Network Error. Check internet or disable AdBlock.',
     };
   }
 };
+
+export const searchTvShows = async (query: string, apiKey: string): Promise<TmdbSearchResult[]> => {
+    if (!query || !apiKey) return [];
+    
+    try {
+        const response = await fetch(`${TMDB_BASE_URL}/search/tv?api_key=${apiKey}&language=en-US&page=1&include_adult=false&query=${encodeURIComponent(query)}`);
+        
+        if (!response.ok) return [];
+
+        const data = await response.json();
+        
+        return (data.results || []).map((item: any) => ({
+            id: item.id,
+            title: item.name,
+            year: item.first_air_date ? parseInt(item.first_air_date.substring(0, 4)) : 0,
+            posterPath: item.poster_path,
+            overview: item.overview || 'No overview available.'
+        }));
+
+    } catch (e) {
+        console.error("Search TV Error:", e);
+        return [];
+    }
+}
+
+export const searchMovies = async (query: string, apiKey: string): Promise<TmdbSearchResult[]> => {
+    if (!query || !apiKey) return [];
+
+    try {
+        const response = await fetch(`${TMDB_BASE_URL}/search/movie?api_key=${apiKey}&language=en-US&page=1&include_adult=false&query=${encodeURIComponent(query)}`);
+        
+        if (!response.ok) return [];
+
+        const data = await response.json();
+        
+        return (data.results || []).map((item: any) => ({
+            id: item.id,
+            title: item.title,
+            year: item.release_date ? parseInt(item.release_date.substring(0, 4)) : 0,
+            posterPath: item.poster_path,
+            overview: item.overview || 'No overview available.'
+        }));
+    } catch (e) {
+        console.error("Search Movies Error:", e);
+        return [];
+    }
+}

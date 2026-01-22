@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import Header from '../components/Header.jsx';
 import Modal from '../components/Modal.jsx';
@@ -6,16 +7,12 @@ import Input from '../components/Input.jsx';
 import Spinner from '../components/Spinner.jsx';
 import { SearchIcon, FileIcon } from '../lib/icons.jsx';
 import { useToast } from '../hooks/useToast.jsx';
+import { searchMovies } from '../lib/tmdb.js';
 
 const MOCK_UNCATEGORIZED = [
   { id: '1', filePath: '/mnt/cloud/movies2/random/movie_2023.mkv', fileName: 'movie_2023.mkv' },
   { id: '2', filePath: '/mnt/cloud/tvshows/dl/series.s01e01/ep1.mp4', fileName: 'ep1.mp4' },
   { id: '3', filePath: '/mnt/cloud/movies1/temp/final_cut.avi', fileName: 'final_cut.avi' },
-];
-
-const MOCK_SEARCH_RESULTS = [
-    { id: 1, title: 'The Super Mario Bros. Movie', year: 2023, posterPath: '/qNBAXBIQlnOThrVvA6mA2B5ggV6.jpg' },
-    { id: 2, title: 'Super Mario Bros.', year: 1993, posterPath: '/3r1i8oKsb3aFFbN3e2p2sQdJz7w.jpg' },
 ];
 
 const Uncategorized = ({ onMenuClick }) => {
@@ -35,10 +32,24 @@ const Uncategorized = ({ onMenuClick }) => {
     const handleSearch = async () => {
         if (!searchQuery.trim()) return;
         setIsSearching(true);
-        // Simulate TMDB API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        setSearchResults(MOCK_SEARCH_RESULTS);
-        setIsSearching(false);
+        
+        try {
+            const apiKey = localStorage.getItem('tmdb_api_key');
+            if (!apiKey) {
+                addToast('Please set TMDB API Key in Settings', 'error');
+                setIsSearching(false);
+                return;
+            }
+
+            const results = await searchMovies(searchQuery, apiKey);
+            setSearchResults(results);
+        } catch (error) {
+            console.error(error);
+            addToast('Failed to search TMDB', 'error');
+            setSearchResults([]);
+        } finally {
+            setIsSearching(false);
+        }
     };
 
     const handleSelectResult = (result) => {
@@ -97,15 +108,19 @@ const Uncategorized = ({ onMenuClick }) => {
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                            autoFocus
                         />
                         <Button onClick={handleSearch} isLoading={isSearching} className="self-end">Search</Button>
                     </div>
 
                     <div className="max-h-96 overflow-y-auto space-y-2 pr-2">
                         {isSearching && <div className="flex justify-center p-8"><Spinner /></div>}
+                        {!isSearching && searchResults.length === 0 && searchQuery && (
+                            <div className="text-center text-gray-500 py-4">No results found</div>
+                        )}
                         {searchResults.map(result => (
-                            <div key={result.id} className="flex items-center gap-4 bg-gray-700 p-3 rounded-lg">
-                                <img src={`https://image.tmdb.org/t/p/w92${result.posterPath}`} alt={result.title} className="w-12 h-auto rounded"/>
+                            <div key={result.id} className="flex items-center gap-4 bg-gray-700 p-3 rounded-lg hover:bg-gray-600 transition-colors">
+                                <img src={result.posterPath ? `https://image.tmdb.org/t/p/w92${result.posterPath}` : 'https://placehold.co/92x138?text=No+Img'} alt={result.title} className="w-12 h-auto rounded shadow-sm object-cover"/>
                                 <div className="flex-1">
                                     <p className="font-bold text-white">{result.title}</p>
                                     <p className="text-sm text-gray-400">{result.year}</p>

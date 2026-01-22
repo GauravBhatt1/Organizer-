@@ -1,5 +1,4 @@
 
-
 import React, { useState, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar.tsx';
 import Dashboard from './pages/Dashboard.tsx';
@@ -10,14 +9,16 @@ import Settings from './pages/Settings.tsx';
 import type { Page } from './types.ts';
 import { ToastProvider } from './hooks/useToast.tsx';
 
-// FIX: Removed React.FC type which can cause subtle type inference issues.
 const App = () => {
   const [currentPage, setCurrentPage] = useState<Page>('Settings');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  // Mock count for demonstration
+  const uncategorizedCount = 3; 
 
   const handleSetCurrentPage = (page: Page) => {
     setCurrentPage(page);
-    setIsSidebarOpen(false); // Automatically hide sidebar on navigation
+    setIsSidebarOpen(false);
   };
 
   const toggleSidebar = useCallback(() => {
@@ -25,7 +26,14 @@ const App = () => {
   }, []);
 
   const pageComponent = useMemo(() => {
-    const pageProps = { onMenuClick: toggleSidebar };
+    // Pass onMenuClick to pages so they can pass it to Header if needed (though we handle header internally now inside Layout often, 
+    // the current architecture has Header inside pages. We will keep passing it, but also pass a Quick Settings handler).
+    const pageProps = { 
+        onMenuClick: toggleSidebar,
+        // If we want a quick link to settings from the header on any page
+        onSettingsClick: () => handleSetCurrentPage('Settings')
+    };
+
     switch (currentPage) {
       case 'Dashboard':
         return <Dashboard {...pageProps} />;
@@ -44,16 +52,21 @@ const App = () => {
 
   return (
     <ToastProvider>
-      <div className="flex h-screen bg-gray-900 text-gray-200 font-sans overflow-hidden">
+      <div className="h-full bg-[#0b0f14] text-gray-200 font-sans">
         <Sidebar 
           currentPage={currentPage} 
           setCurrentPage={handleSetCurrentPage}
           isOpen={isSidebarOpen}
           setIsOpen={setIsSidebarOpen}
+          uncategorizedCount={uncategorizedCount}
         />
-        <main className="flex-1 flex flex-col overflow-y-auto">
-          {pageComponent}
-        </main>
+        
+        {/* Main Content Wrapper - Pushed right on desktop */}
+        <div className="lg:pl-72 flex flex-col h-full transition-all duration-300">
+          <main className="flex-1 overflow-y-auto">
+            {pageComponent}
+          </main>
+        </div>
       </div>
     </ToastProvider>
   );
