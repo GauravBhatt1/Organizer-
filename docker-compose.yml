@@ -9,9 +9,8 @@ services:
       - mongodb
     volumes:
       # BROAD HOST MOUNT
-      # Maps the entire host root (/) to /host inside the container.
-      # This enables the UI Folder Picker to browse the host file system.
-      # Default is '/', but can be overridden via environment variable.
+      # Maps the host root (/) to /host inside the container.
+      # You can change the host side by setting HOST_ROOT in a .env file.
       - ${HOST_ROOT:-/}:/host:rw
     networks:
       - jf-network
