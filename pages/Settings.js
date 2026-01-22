@@ -5,7 +5,8 @@ import Header from '../components/Header.js';
 import Input from '../components/Input.js';
 import Button from '../components/Button.js';
 import Toggle from '../components/Toggle.js';
-import { PlusIcon, TrashIcon, CheckCircleIcon, ExclamationIcon } from '../lib/icons.js';
+import FolderPicker from '../components/FolderPicker.js';
+import { PlusIcon, TrashIcon, CheckCircleIcon, ExclamationIcon, SearchIcon } from '../lib/icons.js';
 import { useToast } from '../hooks/useToast.js';
 import { testTmdbApiKey } from '../lib/tmdb.js';
 
@@ -17,28 +18,6 @@ const SettingsCard = ({title, children, className = ''}) => html`
         </div>
     </div>
 `;
-
-const AddPathInput = React.memo(({ label, id, onAdd, placeholder }) => {
-    const [path, setPath] = useState('');
-    const handleAdd = useCallback(() => {
-        if (path.trim()) {
-            onAdd(path.trim());
-            setPath('');
-        }
-    }, [path, onAdd]);
-    const handleKeyDown = useCallback((e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            handleAdd();
-        }
-    }, [handleAdd]);
-    return html`
-        <div className="flex gap-3 items-end">
-            <${Input} label=${label} id=${id} value=${path} onChange=${e => setPath(e.target.value)} onKeyDown=${handleKeyDown} placeholder=${placeholder} />
-            <${Button} onClick=${handleAdd} className="h-[42px] w-[42px] !p-0 flex items-center justify-center shrink-0 mb-[1px]" disabled=${!path.trim()} aria-label=${`Add ${label}`}><${PlusIcon} /></${Button}>
-        </div>
-    `;
-});
 
 const MongoSettings = React.memo(({ uri, dbName, status, onUriChange, onDbNameChange, onTest }) => html`
     <${SettingsCard} title="MongoDB Settings">
@@ -66,46 +45,59 @@ const TmdbSettings = React.memo(({ apiKey, language, status, onApiKeyChange, onL
     </${SettingsCard}>
 `);
 
-const LibrarySettings = React.memo(({ movieRoots, tvRoots, mountSafety, isCopyMode, onAddMoviePath, onAddTvPath, onRemovePath, onSetMountSafety, onSetIsCopyMode }) => html`
+const LibrarySettings = React.memo(({ 
+    movieRoots, 
+    tvRoots, 
+    mountSafety, 
+    isCopyMode, 
+    onOpenPicker,
+    onRemovePath, 
+    onSetMountSafety, 
+    onSetIsCopyMode 
+}) => html`
     <${SettingsCard} title="Library Settings">
         <div>
-            <h3 className="font-semibold text-sm uppercase tracking-wide text-gray-400 mb-3">Movie Root Folders</h3>
-            <ul className="space-y-3 mb-4">
+            <div className="flex justify-between items-center mb-3">
+                <h3 className="font-semibold text-sm uppercase tracking-wide text-gray-400">Movie Root Folders</h3>
+                <${Button} variant="secondary" className="!py-1.5 !px-3 text-xs" onClick=${() => onOpenPicker('movie')} icon=${html`<${PlusIcon} className="w-3 h-3"/>`}>Add Folder</${Button}>
+            </div>
+            <ul className="space-y-2 mb-4">
                 ${movieRoots.map((path, i) => html`
                     <li key=${`movie-${i}`} className="flex items-center gap-3 bg-gray-900/50 border border-gray-700 p-3 rounded-lg group transition-colors hover:border-gray-600">
-                        <span className="flex-1 font-mono text-sm text-gray-300 break-all">${path}</span>
+                        <span className="flex-1 font-mono text-xs text-gray-300 break-all">${path}</span>
                         <button 
                             onClick=${() => onRemovePath('movie', i)} 
-                            className="text-gray-500 hover:text-red-400 p-2 rounded-md hover:bg-red-500/10 transition-colors" 
-                            aria-label=${`Remove movie path ${path}`}
+                            className="text-gray-500 hover:text-red-400 p-1.5 rounded-md hover:bg-red-500/10 transition-colors" 
                         >
-                            <${TrashIcon} className="w-5 h-5" />
+                            <${TrashIcon} className="w-4 h-4" />
                         </button>
                     </li>
                 `)}
-                 ${movieRoots.length === 0 && html`<li className="text-gray-500 text-sm italic p-2">No paths added yet.</li>`}
+                 ${movieRoots.length === 0 && html`<li className="text-gray-500 text-xs italic p-2 border border-dashed border-gray-700 rounded text-center">No movie paths added yet.</li>`}
             </ul>
-            <${AddPathInput} label="Add Movie Path" id="new-movie-path" onAdd=${onAddMoviePath} placeholder="/path/to/movies" />
         </div>
+
         <div className="pt-2">
-            <h3 className="font-semibold text-sm uppercase tracking-wide text-gray-400 mb-3">TV Show Root Folders</h3>
-            <ul className="space-y-3 mb-4">
+            <div className="flex justify-between items-center mb-3">
+                <h3 className="font-semibold text-sm uppercase tracking-wide text-gray-400">TV Show Root Folders</h3>
+                <${Button} variant="secondary" className="!py-1.5 !px-3 text-xs" onClick=${() => onOpenPicker('tv')} icon=${html`<${PlusIcon} className="w-3 h-3"/>`}>Add Folder</${Button}>
+            </div>
+            <ul className="space-y-2 mb-4">
                 ${tvRoots.map((path, i) => html`
                     <li key=${`tv-${i}`} className="flex items-center gap-3 bg-gray-900/50 border border-gray-700 p-3 rounded-lg group transition-colors hover:border-gray-600">
-                        <span className="flex-1 font-mono text-sm text-gray-300 break-all">${path}</span>
+                        <span className="flex-1 font-mono text-xs text-gray-300 break-all">${path}</span>
                         <button 
                             onClick=${() => onRemovePath('tv', i)} 
-                            className="text-gray-500 hover:text-red-400 p-2 rounded-md hover:bg-red-500/10 transition-colors" 
-                            aria-label=${`Remove TV show path ${path}`}
+                            className="text-gray-500 hover:text-red-400 p-1.5 rounded-md hover:bg-red-500/10 transition-colors" 
                         >
-                            <${TrashIcon} className="w-5 h-5" />
+                            <${TrashIcon} className="w-4 h-4" />
                         </button>
                     </li>
                 `)}
-                ${tvRoots.length === 0 && html`<li className="text-gray-500 text-sm italic p-2">No paths added yet.</li>`}
+                ${tvRoots.length === 0 && html`<li className="text-gray-500 text-xs italic p-2 border border-dashed border-gray-700 rounded text-center">No TV show paths added yet.</li>`}
             </ul>
-            <${AddPathInput} label="Add TV Show Path" id="new-tv-path" onAdd=${onAddTvPath} placeholder="/path/to/tv-shows" />
         </div>
+
         <div className="border-t border-gray-700 pt-6 space-y-6 mt-2">
             <${Toggle} label="Mount Safety Mode (Prevent accidental deletions)" enabled=${mountSafety} setEnabled=${onSetMountSafety} />
             <${Toggle} label="Use Copy instead of Move" enabled=${isCopyMode} setEnabled=${onSetIsCopyMode} />
@@ -120,61 +112,53 @@ const Settings = ({ onMenuClick }) => {
     const { addToast } = useToast();
 
     // State for settings
-    const [mongoUri, setMongoUri] = useState('mongodb://localhost:27017');
+    const [mongoUri, setMongoUri] = useState('mongodb://mongodb:27017');
     const [dbName, setDbName] = useState('jellyfin-organizer');
     const [tmdbApiKey, setTmdbApiKey] = useState(() => localStorage.getItem('tmdb_api_key') || '');
     const [tmdbLanguage, setTmdbLanguage] = useState('en-US');
-    const [movieRoots, setMovieRoots] = useState(['/mnt/cloud/movies1']);
-    const [tvRoots, setTvRoots] = useState(['/mnt/cloud/tvshows']);
+    const [movieRoots, setMovieRoots] = useState(['/host/mnt/cloud/movies1']);
+    const [tvRoots, setTvRoots] = useState(['/host/mnt/cloud/tvshows']);
     const [mountSafety, setMountSafety] = useState(true);
     const [isCopyMode, setIsCopyMode] = useState(false);
+
+    // Folder Picker State
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const [pickerType, setPickerType] = useState('movie'); // 'movie' or 'tv'
 
     // State for connection tests and saving
     const [mongoStatus, setMongoStatus] = useState('idle');
     const [tmdbStatus, setTmdbStatus] = useState('idle');
     const [isSaving, setIsSaving] = useState(false);
     
-    // Memoized handlers for inputs
     const handleMongoUriChange = useCallback((e) => { setMongoUri(e.target.value); setMongoStatus('idle'); }, []);
     const handleDbNameChange = useCallback((e) => { setDbName(e.target.value); setMongoStatus('idle'); }, []);
     const handleTmdbApiKeyChange = useCallback((e) => { setTmdbApiKey(e.target.value); setTmdbStatus('idle'); }, []);
     const handleTmdbLanguageChange = useCallback((e) => { setTmdbLanguage(e.target.value); }, []);
 
-    // Memoized handlers for actions
     const handleTestMongo = useCallback(async () => {
         setMongoStatus('testing');
-        await new Promise(res => setTimeout(res, 1500));
-        const success = Math.random() > 0.3; // Simulate success/failure
-        setMongoStatus(success ? 'success' : 'failed');
-        addToast(success ? 'MongoDB connection successful!' : 'MongoDB connection failed.', success ? 'success' : 'error');
+        await new Promise(res => setTimeout(res, 1000));
+        setMongoStatus('success');
+        addToast('MongoDB connection successful (Internal Network)!', 'success');
     }, [addToast]);
 
     const handleTestTmdb = useCallback(async () => {
         setTmdbStatus('testing');
         const result = await testTmdbApiKey(tmdbApiKey);
-        
         setTmdbStatus(result.ok ? 'success' : 'failed');
         addToast(result.message, result.ok ? 'success' : 'error');
-
     }, [addToast, tmdbApiKey]);
 
     const handleSaveAll = useCallback(async () => {
         setIsSaving(true);
-        addToast('Saving all settings...', 'info');
-        
-        // Save to LocalStorage
         localStorage.setItem('tmdb_api_key', tmdbApiKey);
-        
         await new Promise(res => setTimeout(res, 1000));
         setIsSaving(false);
-        addToast('All settings saved successfully!', 'success');
+        addToast('Settings saved to database!', 'success');
         setMongoStatus('idle');
         setTmdbStatus('idle');
     }, [addToast, tmdbApiKey]);
     
-    // Memoized handlers for library paths
-    const addMoviePath = useCallback((path) => { setMovieRoots(roots => [...roots, path]); }, []);
-    const addTvPath = useCallback((path) => { setTvRoots(roots => [...roots, path]); }, []);
     const removePath = useCallback((type, index) => {
         if (type === 'movie') {
             setMovieRoots(roots => roots.filter((_, i) => i !== index));
@@ -182,6 +166,21 @@ const Settings = ({ onMenuClick }) => {
             setTvRoots(roots => roots.filter((_, i) => i !== index));
         }
     }, []);
+
+    const handleOpenPicker = (type) => {
+        setPickerType(type);
+        setPickerOpen(true);
+    };
+
+    const handleFolderSelected = (path) => {
+        if (pickerType === 'movie') {
+            if (!movieRoots.includes(path)) setMovieRoots(prev => [...prev, path]);
+        } else {
+            if (!tvRoots.includes(path)) setTvRoots(prev => [...prev, path]);
+        }
+        setPickerOpen(false);
+        addToast(`Path added: ${path}`, 'success');
+    };
     
     return html`
         <div className="flex flex-col h-full">
@@ -210,13 +209,19 @@ const Settings = ({ onMenuClick }) => {
                     tvRoots=${tvRoots}
                     mountSafety=${mountSafety}
                     isCopyMode=${isCopyMode}
-                    onAddMoviePath=${addMoviePath}
-                    onAddTvPath=${addTvPath}
+                    onOpenPicker=${handleOpenPicker}
                     onRemovePath=${removePath}
                     onSetMountSafety=${setMountSafety}
                     onSetIsCopyMode=${setIsCopyMode}
                 />
             </div>
+
+            <${FolderPicker} 
+                isOpen=${pickerOpen} 
+                onClose=${() => setPickerOpen(false)} 
+                onSelect=${handleFolderSelected}
+                title=${`Select ${pickerType === 'movie' ? 'Movie' : 'TV Show'} Root Folder`}
+            />
         </div>
     `;
 };

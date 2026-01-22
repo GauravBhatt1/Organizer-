@@ -11,10 +11,9 @@ services:
     depends_on:
       - mongodb
     volumes:
-      # Map your VPS rclone mount paths here
-      # Format: /host/path:/container/path:ro (read-only for safety)
-      - /mnt/cloud/movies:/mnt/movies:rw
-      - /mnt/cloud/tvshows:/mnt/tvshows:rw
+      # Map the entire host root to /host inside the container for the folder picker.
+      # Organizing (moving/renaming) requires read-write access.
+      - /:/host:rw
     networks:
       - jf-network
 
