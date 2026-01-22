@@ -3,8 +3,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { execSync } from 'child_process';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import cors from 'cors';
+import { runScanJob } from './lib/scanner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,17 +52,12 @@ let currentConfig = loadConfig();
 
 async function connectDB(uri) {
     if (!uri) return;
-    
-    // Close existing connection if any
     if (client) {
         try { await client.close(); } catch(e) {}
     }
-
     try {
-        // serverSelectionTimeoutMS is crucial for failing fast with bad URIs (Atlas etc)
         client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
         await client.connect();
-        
         const dbName = currentConfig.dbName || 'jellyfin-organizer';
         db = client.db(dbName);
         console.log(`Connected to MongoDB: ${dbName}`);
@@ -71,7 +67,6 @@ async function connectDB(uri) {
     }
 }
 
-// Attempt initial connection if URI exists in config file
 if (currentConfig.mongoUri) {
     connectDB(currentConfig.mongoUri);
 }
@@ -86,12 +81,10 @@ const sanitizePath = (requestedPath) => {
 
 // --- API Routes ---
 
-// 1. Test Mongo Connection (On-demand)
+// 1. Test Mongo Connection
 app.post('/api/mongo/test', async (req, res) => {
     const { uri } = req.body;
     if (!uri) return res.status(400).json({ message: 'URI is required' });
-
-    // Use a separate client for testing to avoid disrupting the main connection
     const testClient = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
     try {
         await testClient.connect();
@@ -107,7 +100,6 @@ app.post('/api/mongo/test', async (req, res) => {
 app.get('/api/settings', async (req, res) => {
     const localConfig = loadConfig();
     let dbSettings = {};
-
     if (db) {
         try {
             dbSettings = await db.collection('settings').findOne({ id: 'global' }) || {};
@@ -117,8 +109,6 @@ app.get('/api/settings', async (req, res) => {
             console.error("Failed to fetch settings from DB:", err);
         }
     }
-
-    // Merge: Local config (Mongo URI) + DB Settings
     res.json({
         ...dbSettings,
         mongoUri: localConfig.mongoUri || '',
@@ -129,9 +119,7 @@ app.get('/api/settings', async (req, res) => {
 // 3. Save Settings
 app.post('/api/settings', async (req, res) => {
     const { mongoUri, dbName, ...appSettings } = req.body;
-
     try {
-        // A. Handle Connection Changes (Local Persistence)
         const oldConfig = loadConfig();
         const hasUriChanged = mongoUri && mongoUri !== oldConfig.mongoUri;
         const hasDbNameChanged = dbName && dbName !== oldConfig.dbName;
@@ -146,35 +134,93 @@ app.post('/api/settings', async (req, res) => {
             }
         }
 
-        // B. Handle Application Settings (DB Persistence)
         if (db) {
             await db.collection('settings').updateOne(
                 { id: 'global' },
                 { $set: appSettings },
                 { upsert: true }
             );
-        } else if (!mongoUri) {
-             // If we don't have a DB and no URI was provided to save, we can't do anything for app settings
-             // But we successfully saved the empty/partial local config above.
         }
-
         res.json({ success: true });
-
     } catch (err) {
         console.error('Failed to save settings:', err);
         res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
     }
 });
 
-// --- Data Endpoints (Return Real Data or Empty) ---
+// --- SCANNING & JOBS ---
+
+// Start Scan
+app.post('/api/scan/start', async (req, res) => {
+    if (!db) return res.status(503).json({ message: 'Database not connected' });
+    
+    // Check if job running
+    const activeJob = await db.collection('jobs').findOne({ status: 'running' });
+    if (activeJob) {
+        return res.status(409).json({ message: 'A scan is already running', jobId: activeJob._id });
+    }
+
+    const { dryRun, isCopyMode } = req.body; // Overrides
+
+    // Create Job
+    const job = {
+        status: 'running',
+        startedAt: new Date(),
+        totalFiles: 0,
+        processedFiles: 0,
+        stats: { movies: 0, tv: 0, uncategorized: 0, errors: 0 },
+        logs: [],
+        errors: []
+    };
+    
+    const result = await db.collection('jobs').insertOne(job);
+    const jobId = result.insertedId;
+
+    // Start background process
+    runScanJob(db, jobId, { dryRun, isCopyMode }).catch(err => {
+        console.error("Critical Scanner Error:", err);
+        db.collection('jobs').updateOne({ _id: jobId }, { 
+            $set: { status: 'failed', finishedAt: new Date() },
+            $push: { errors: { error: err.message } }
+        });
+    });
+
+    res.json({ success: true, jobId });
+});
+
+// Get Job Status
+app.get('/api/scan/status/:jobId', async (req, res) => {
+    if (!db) return res.status(503).json({ message: 'Database not connected' });
+    try {
+        const job = await db.collection('jobs').findOne({ _id: new ObjectId(req.params.jobId) });
+        if (!job) return res.status(404).json({ message: 'Job not found' });
+        res.json(job);
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+// Get Latest Active or Last Job
+app.get('/api/scan/current', async (req, res) => {
+    if (!db) return res.json(null);
+    try {
+        // Find running or most recent
+        const job = await db.collection('jobs').find().sort({ startedAt: -1 }).limit(1).toArray();
+        res.json(job[0] || null);
+    } catch (e) {
+        res.json(null);
+    }
+});
+
+// --- DATA ENDPOINTS ---
 
 app.get('/api/dashboard', async (req, res) => {
     if (!db) return res.json({ movies: 0, tvShows: 0, uncategorized: 0 });
     try {
         const [movies, tvShows, uncategorized] = await Promise.all([
-            db.collection('movies').countDocuments(),
-            db.collection('tvshows').countDocuments(),
-            db.collection('uncategorized').countDocuments()
+            db.collection('items').countDocuments({ kind: 'movie', status: 'done' }),
+            db.collection('items').countDocuments({ kind: 'tv', status: 'done' }),
+            db.collection('items').countDocuments({ kind: 'uncategorized' }) // count pending/skipped too
         ]);
         res.json({ movies, tvShows, uncategorized });
     } catch (e) {
@@ -185,8 +231,21 @@ app.get('/api/dashboard', async (req, res) => {
 app.get('/api/movies', async (req, res) => {
     if (!db) return res.json([]);
     try {
-        const movies = await db.collection('movies').find().toArray();
-        res.json(movies);
+        const movies = await db.collection('items')
+            .find({ kind: 'movie', status: 'done' })
+            .sort({ 'tmdb.title': 1 })
+            .limit(100)
+            .toArray();
+            
+        // Map to frontend expected format
+        res.json(movies.map(m => ({
+            id: m._id,
+            title: m.tmdb?.title || m.titleGuess,
+            year: m.tmdb?.year || m.yearGuess,
+            posterPath: m.tmdb?.posterPath,
+            overview: m.tmdb?.overview,
+            filePath: m.destPath || m.srcPath
+        })));
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -195,8 +254,31 @@ app.get('/api/movies', async (req, res) => {
 app.get('/api/tvshows', async (req, res) => {
     if (!db) return res.json([]);
     try {
-        const shows = await db.collection('tvshows').find().toArray();
-        res.json(shows);
+        // Group by series? For now just list items or find unique series logic
+        // Simplified: returning individual items or maybe aggregate. 
+        // Let's return unique shows based on TMDB ID
+        const shows = await db.collection('items').aggregate([
+            { $match: { kind: 'tv', status: 'done' } },
+            { $group: {
+                _id: "$tmdb.id",
+                title: { $first: "$tmdb.title" },
+                year: { $first: "$tmdb.year" },
+                posterPath: { $first: "$tmdb.posterPath" },
+                overview: { $first: "$tmdb.overview" },
+                filePath: { $first: "$destPath" }, // Just one example path
+                count: { $sum: 1 }
+            }},
+            { $sort: { title: 1 } }
+        ]).toArray();
+
+        res.json(shows.map(s => ({
+            id: s._id,
+            title: s.title,
+            year: s.year,
+            posterPath: s.posterPath,
+            overview: s.overview,
+            filePath: s.filePath
+        })));
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -205,8 +287,16 @@ app.get('/api/tvshows', async (req, res) => {
 app.get('/api/uncategorized', async (req, res) => {
     if (!db) return res.json([]);
     try {
-        const items = await db.collection('uncategorized').find().toArray();
-        res.json(items);
+        const items = await db.collection('items')
+            .find({ kind: 'uncategorized' })
+            .limit(100)
+            .toArray();
+            
+        res.json(items.map(i => ({
+            id: i._id,
+            fileName: path.basename(i.srcPath),
+            filePath: i.srcPath
+        })));
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -246,21 +336,25 @@ app.get('/api/fs/validate', (req, res) => {
   const checkMount = req.query.mountSafety === 'true';
   try {
     if (!fs.existsSync(checkPath)) return res.json({ valid: false, message: 'Path does not exist' });
-    const stats = fs.statSync(checkPath);
-    if (!stats.isDirectory()) return res.json({ valid: false, message: 'Not a directory' });
-    fs.accessSync(checkPath, fs.constants.R_OK);
+    
+    // Attempt read access
+    try {
+        fs.accessSync(checkPath, fs.constants.R_OK);
+    } catch(e) {
+        return res.json({ valid: false, message: 'Read permission denied' });
+    }
 
     if (checkMount) {
       try {
-        const output = execSync(`findmnt -T ${checkPath}`).toString();
-        if (!output) throw new Error('Mount check failed');
+        // findmnt -T returns 0 if mountpoint found
+        execSync(`findmnt -T "${checkPath}"`);
       } catch (e) {
         return res.json({ valid: false, message: 'Storage mount not detected (Safety Mode)' });
       }
     }
     res.json({ valid: true });
   } catch (error) {
-    res.json({ valid: false, message: 'Permission denied or error: ' + error.message });
+    res.json({ valid: false, message: 'Error: ' + error.message });
   }
 });
 
