@@ -14,6 +14,8 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from the current directory
 app.use(express.static(__dirname));
 
 // --- Security & Constants ---
@@ -55,9 +57,6 @@ app.get('/api/settings', async (req, res) => {
             message: 'Database connection is still initializing. Please wait a few seconds and refresh.' 
         });
     }
-    // Check connection status using a ping command or simpler check if needed, 
-    // but usually driver handles it.
-    
     const settings = await db.collection('settings').findOne({ id: 'global' });
     res.json(settings || {});
   } catch (err) {
@@ -148,6 +147,7 @@ app.get('/api/tmdb/test', async (req, res) => {
   }
 });
 
+// For any other request, serve the index.html (SPA support)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
