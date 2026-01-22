@@ -7,10 +7,11 @@ services:
       - "3000:3000"
     depends_on:
       - mongodb
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
     volumes:
       # BROAD HOST MOUNT
       # Maps the host root (/) to /host inside the container.
-      # You can change the host side by setting HOST_ROOT in a .env file.
       - ${HOST_ROOT:-/}:/host:rw
     networks:
       - jf-network
