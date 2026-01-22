@@ -1,20 +1,26 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
 
-# Run and deploy your AI Studio app
+# Deployment Guide
 
-This contains everything you need to run your app locally.
+## VPS Installation (Ubuntu)
+1. Install Docker: `sudo apt update && sudo apt install docker.io docker-compose -y`
+2. Create project folder: `mkdir ~/jf-organizer && cd ~/jf-organizer`
+3. Upload your project files to this folder.
+4. Ensure your rclone mounts are active on the VPS (e.g., `/mnt/cloud/movies`).
 
-View your app in AI Studio: https://ai.studio/apps/drive/1OW_zdTzWAFERfn39J87hquZtpkacuJSR
+## Portainer Deployment
+1. Go to **Stacks** -> **Add stack**.
+2. Name it `jellyfin-organizer`.
+3. Paste the contents of `docker-compose.yml` into the web editor.
+4. **Important**: Adjust the `volumes` section for the `app` service to match your actual VPS paths.
+5. Click **Deploy the stack**.
 
-## Run Locally
+## Initial Setup
+1. Open `http://your-vps-ip:3000`.
+2. Go to **Settings**.
+3. For MongoDB URI, use: `mongodb://mongodb:27017/jellyfin-organizer`.
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Safe Updates
+To update the app without losing database data:
+1. Re-upload updated files to the VPS.
+2. In Portainer, go to the stack and click **Editor**.
+3. Click **Update the stack** and ensure "Pull latest image" / "Re-build" is triggered if using a registry, or simply restart the container if mounting local source.

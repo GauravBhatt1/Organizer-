@@ -2,11 +2,34 @@
 version: '3.8'
 
 services:
-  jellyfin-organizer:
+  app:
     build: .
-    container_name: jellyfin-organizer-app
+    container_name: jellyfin-organizer
+    restart: unless-stopped
     ports:
-      - "3000:80"
-    restart: always
-    environment:
-      - NODE_ENV=production
+      - "3000:3000"
+    depends_on:
+      - mongodb
+    volumes:
+      # Map your VPS rclone mount paths here
+      # Format: /host/path:/container/path:ro (read-only for safety)
+      - /mnt/cloud/movies:/mnt/movies:rw
+      - /mnt/cloud/tvshows:/mnt/tvshows:rw
+    networks:
+      - jf-network
+
+  mongodb:
+    image: mongo:latest
+    container_name: jf-mongo
+    restart: unless-stopped
+    volumes:
+      - jf-mongo-data:/data/db
+    networks:
+      - jf-network
+
+networks:
+  jf-network:
+    driver: bridge
+
+volumes:
+  jf-mongo-data:
