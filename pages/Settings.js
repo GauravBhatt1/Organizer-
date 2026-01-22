@@ -6,7 +6,7 @@ import Input from '../components/Input.js';
 import Button from '../components/Button.js';
 import Toggle from '../components/Toggle.js';
 import FolderPicker from '../components/FolderPicker.js';
-import { PlusIcon, TrashIcon, CheckCircleIcon, ExclamationIcon, SearchIcon } from '../lib/icons.js';
+import { PlusIcon, TrashIcon, CheckCircleIcon, ExclamationIcon } from '../lib/icons.js';
 import { useToast } from '../hooks/useToast.js';
 import { testTmdbApiKey } from '../lib/tmdb.js';
 
@@ -53,7 +53,8 @@ const LibrarySettings = React.memo(({
     onOpenPicker,
     onRemovePath, 
     onSetMountSafety, 
-    onSetIsCopyMode 
+    onSetIsCopyMode,
+    onTestMounts
 }) => html`
     <${SettingsCard} title="Library Settings">
         <div>
@@ -102,7 +103,7 @@ const LibrarySettings = React.memo(({
             <${Toggle} label="Mount Safety Mode (Prevent accidental deletions)" enabled=${mountSafety} setEnabled=${onSetMountSafety} />
             <${Toggle} label="Use Copy instead of Move" enabled=${isCopyMode} setEnabled=${onSetIsCopyMode} />
             <div className="pt-2">
-                 <${Button} variant="secondary" className="w-full sm:w-auto">Test Mount Permissions</${Button}>
+                 <${Button} variant="secondary" className="w-full sm:w-auto" onClick=${onTestMounts}>Test Storage Permissions</${Button}>
             </div>
         </div>
     </${SettingsCard}>
@@ -116,16 +117,16 @@ const Settings = ({ onMenuClick }) => {
     const [dbName, setDbName] = useState('jellyfin-organizer');
     const [tmdbApiKey, setTmdbApiKey] = useState(() => localStorage.getItem('tmdb_api_key') || '');
     const [tmdbLanguage, setTmdbLanguage] = useState('en-US');
-    const [movieRoots, setMovieRoots] = useState(['/host/mnt/cloud/movies1']);
-    const [tvRoots, setTvRoots] = useState(['/host/mnt/cloud/tvshows']);
+    const [movieRoots, setMovieRoots] = useState(['/host/media/movies']);
+    const [tvRoots, setTvRoots] = useState(['/host/media/tvshows']);
     const [mountSafety, setMountSafety] = useState(true);
     const [isCopyMode, setIsCopyMode] = useState(false);
 
     // Folder Picker State
     const [pickerOpen, setPickerOpen] = useState(false);
-    const [pickerType, setPickerType] = useState('movie'); // 'movie' or 'tv'
+    const [pickerType, setPickerType] = useState('movie'); 
 
-    // State for connection tests and saving
+    // State for tests and saving
     const [mongoStatus, setMongoStatus] = useState('idle');
     const [tmdbStatus, setTmdbStatus] = useState('idle');
     const [isSaving, setIsSaving] = useState(false);
@@ -139,7 +140,7 @@ const Settings = ({ onMenuClick }) => {
         setMongoStatus('testing');
         await new Promise(res => setTimeout(res, 1000));
         setMongoStatus('success');
-        addToast('MongoDB connection successful (Internal Network)!', 'success');
+        addToast('MongoDB connection successful!', 'success');
     }, [addToast]);
 
     const handleTestTmdb = useCallback(async () => {
@@ -149,12 +150,36 @@ const Settings = ({ onMenuClick }) => {
         addToast(result.message, result.ok ? 'success' : 'error');
     }, [addToast, tmdbApiKey]);
 
+    const handleTestMounts = useCallback(async () => {
+        addToast('Verifying host storage access...', 'info');
+        const allPaths = [...movieRoots, ...tvRoots];
+        if (allPaths.length === 0) {
+            addToast('No paths to test.', 'error');
+            return;
+        }
+
+        let successCount = 0;
+        for (const p of allPaths) {
+            try {
+                const res = await fetch(`/api/fs/validate?path=${encodeURIComponent(p)}&mountSafety=${mountSafety}`);
+                const data = await res.json();
+                if (data.valid) successCount++;
+            } catch (e) { console.error(e); }
+        }
+
+        if (successCount === allPaths.length) {
+            addToast(`All ${allPaths.length} paths are accessible and mounted!`, 'success');
+        } else {
+            addToast(`${allPaths.length - successCount} paths failed verification.`, 'error');
+        }
+    }, [movieRoots, tvRoots, mountSafety, addToast]);
+
     const handleSaveAll = useCallback(async () => {
         setIsSaving(true);
         localStorage.setItem('tmdb_api_key', tmdbApiKey);
         await new Promise(res => setTimeout(res, 1000));
         setIsSaving(false);
-        addToast('Settings saved to database!', 'success');
+        addToast('Settings saved successfully!', 'success');
         setMongoStatus('idle');
         setTmdbStatus('idle');
     }, [addToast, tmdbApiKey]);
@@ -179,7 +204,7 @@ const Settings = ({ onMenuClick }) => {
             if (!tvRoots.includes(path)) setTvRoots(prev => [...prev, path]);
         }
         setPickerOpen(false);
-        addToast(`Path added: ${path}`, 'success');
+        addToast(`Added: ${path}`, 'success');
     };
     
     return html`
@@ -213,6 +238,7 @@ const Settings = ({ onMenuClick }) => {
                     onRemovePath=${removePath}
                     onSetMountSafety=${setMountSafety}
                     onSetIsCopyMode=${setIsCopyMode}
+                    onTestMounts=${handleTestMounts}
                 />
             </div>
 
