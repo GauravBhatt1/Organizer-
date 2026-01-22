@@ -123,18 +123,34 @@ const Settings = ({ onMenuClick }) => {
 
     // Fetch settings on load
     useEffect(() => {
-        fetch('/api/settings')
-            .then(res => res.json())
-            .then(data => {
+        const loadSettings = async () => {
+            try {
+                const res = await fetch('/api/settings');
+                const contentType = res.headers.get("content-type");
+                
+                if (!res.ok) {
+                    if (res.status === 503) throw new Error("Database is still connecting. Please wait...");
+                    throw new Error("Server error fetching settings");
+                }
+                
+                if (!contentType || !contentType.includes("application/json")) {
+                    throw new Error("Received invalid response from server");
+                }
+
+                const data = await res.json();
                 if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
                 if (data.tmdbLanguage) setTmdbLanguage(data.tmdbLanguage);
                 if (data.movieRoots) setMovieRoots(data.movieRoots);
                 if (data.tvRoots) setTvRoots(data.tvRoots);
                 if (data.mountSafety !== undefined) setMountSafety(data.mountSafety);
                 if (data.isCopyMode !== undefined) setIsCopyMode(data.isCopyMode);
-            })
-            .catch(err => console.error("Failed to fetch settings", err));
-    }, []);
+            } catch (err) {
+                console.error("Failed to fetch settings:", err);
+                addToast(err.message, 'error');
+            }
+        };
+        loadSettings();
+    }, [addToast]);
     
     const handleMongoUriChange = useCallback((e) => setMongoUri(e.target.value), []);
     const handleDbNameChange = useCallback((e) => setDbName(e.target.value), []);
@@ -143,9 +159,22 @@ const Settings = ({ onMenuClick }) => {
 
     const handleTestMongo = useCallback(async () => {
         setMongoStatus('testing');
-        await new Promise(res => setTimeout(res, 1000));
-        setMongoStatus('success');
-        addToast('Connected to container MongoDB!', 'success');
+        // Simple ping to backend to see if it responds correctly
+        try {
+            const res = await fetch('/api/settings');
+            if (res.status === 503) {
+                addToast('Backend is up, but MongoDB is still connecting...', 'info');
+                setMongoStatus('idle');
+            } else if (res.ok) {
+                setMongoStatus('success');
+                addToast('Connected to container MongoDB!', 'success');
+            } else {
+                throw new Error();
+            }
+        } catch (e) {
+            setMongoStatus('failed');
+            addToast('Could not verify MongoDB connection.', 'error');
+        }
     }, [addToast]);
 
     const handleTestTmdb = useCallback(async () => {
@@ -186,9 +215,12 @@ const Settings = ({ onMenuClick }) => {
             if (res.ok) {
                 localStorage.setItem('tmdb_api_key', tmdbApiKey);
                 addToast('Settings saved to MongoDB!', 'success');
-            } else throw new Error();
+            } else {
+                const errData = await res.json();
+                throw new Error(errData.message || 'Save failed');
+            }
         } catch (e) {
-            addToast('Failed to save settings.', 'error');
+            addToast(`Failed: ${e.message}`, 'error');
         } finally {
             setIsSaving(false);
         }

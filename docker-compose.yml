@@ -10,8 +10,7 @@ services:
     environment:
       - MONGO_URL=mongodb://mongodb:27017
     volumes:
-      # BROAD HOST MOUNT
-      # Maps the host root (/) to /host inside the container.
+      # Maps the host root (/) to /host inside the container for browsing
       - ${HOST_ROOT:-/}:/host:rw
     networks:
       - jf-network

@@ -18,7 +18,7 @@ app.use(express.static(__dirname));
 const JAIL_PATH = '/host';
 
 // --- MongoDB Setup ---
-const mongoUrl = process.env.MONGO_URL || 'mongodb://localhost:27017';
+const mongoUrl = process.env.MONGO_URL || 'mongodb://mongodb:27017';
 const client = new MongoClient(mongoUrl);
 let db;
 
@@ -47,25 +47,32 @@ const sanitizePath = (requestedPath) => {
 // Persistence Routes
 app.get('/api/settings', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ message: 'DB not ready' });
+    if (!db) {
+        return res.status(503).json({ 
+            error: 'DB_NOT_READY', 
+            message: 'Database connection is still initializing. Please wait a few seconds and refresh.' 
+        });
+    }
     const settings = await db.collection('settings').findOne({ id: 'global' });
     res.json(settings || {});
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Failed to get settings:', err);
+    res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
   }
 });
 
 app.post('/api/settings', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ message: 'DB not ready' });
-    await db.collection('settings').updateOne(
+    if (!db) return res.status(503).json({ error: 'DB_NOT_READY', message: 'DB not ready' });
+    const result = await db.collection('settings').updateOne(
       { id: 'global' },
       { $set: req.body },
       { upsert: true }
     );
-    res.json({ success: true });
+    res.json({ success: true, modifiedCount: result.modifiedCount });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Failed to save settings:', err);
+    res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
   }
 });
 
@@ -92,6 +99,7 @@ app.get('/api/fs/list', (req, res) => {
       items
     });
   } catch (error) {
+    console.error('FS list error:', error);
     res.status(500).json({ message: 'Error listing directory' });
   }
 });
@@ -120,16 +128,21 @@ app.get('/api/fs/validate', (req, res) => {
   }
 });
 
-// Proxy for TMDB Test
+// Proxy for TMDB Test - Crucial to avoid CORS and handle key correctly
 app.get('/api/tmdb/test', async (req, res) => {
   const apiKey = req.query.key;
   if (!apiKey) return res.status(400).json({ message: 'Missing Key' });
   try {
-    const response = await fetch(`https://api.themoviedb.org/3/configuration?api_key=${apiKey}`);
+    // We use the query parameter style which is more common for standard TMDB keys
+    const tmdbUrl = `https://api.themoviedb.org/3/configuration?api_key=${apiKey}`;
+    const response = await fetch(tmdbUrl);
     const data = await response.json();
+    
+    // Ensure we return clean JSON and forward status code
     res.status(response.status).json(data);
   } catch (error) {
-    res.status(500).json({ message: 'Server Error' });
+    console.error('TMDB Proxy Error:', error);
+    res.status(500).json({ error: 'PROXY_ERROR', message: 'Could not reach TMDB API' });
   }
 });
 
