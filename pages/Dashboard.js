@@ -33,10 +33,8 @@ const Dashboard = ({ onMenuClick }) => {
             const res = await fetch('/api/scan/current');
             const job = await res.json();
             
-            // Only update if changed significantly or if status changed
             if (job) {
                 setCurrentJob(job);
-                // If job is running, ensure we keep polling
                 if (job.status === 'running') {
                     if (!pollInterval.current) startPolling();
                 } else {
@@ -84,7 +82,7 @@ const Dashboard = ({ onMenuClick }) => {
             
             if (res.ok) {
                 addToast('Scan started!', 'success');
-                fetchCurrentJob(); // Immediate update
+                fetchCurrentJob(); 
             } else {
                 addToast(`Failed: ${data.message}`, 'error');
             }
@@ -93,7 +91,6 @@ const Dashboard = ({ onMenuClick }) => {
         }
     }, [currentJob, isDryRun, addToast]);
 
-    // Calculate progress percentage
     const progress = currentJob && currentJob.totalFiles > 0 
         ? Math.round((currentJob.processedFiles / currentJob.totalFiles) * 100) 
         : 0;

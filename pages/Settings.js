@@ -124,7 +124,6 @@ const LibrarySettings = React.memo(({
 const Settings = ({ onMenuClick }) => {
     const { addToast } = useToast();
 
-    // Initialize with empty strings, DO NOT use defaults
     const [mongoUri, setMongoUri] = useState('');
     const [dbName, setDbName] = useState('');
     const [tmdbApiKey, setTmdbApiKey] = useState('');
@@ -140,20 +139,21 @@ const Settings = ({ onMenuClick }) => {
     const [tmdbStatus, setTmdbStatus] = useState('idle');
     const [isSaving, setIsSaving] = useState(false);
 
-    // Fetch settings on load
     useEffect(() => {
         const loadSettings = async () => {
             try {
                 const res = await fetch('/api/settings');
                 
+                // If the response is not OK, we throw, but we should inspect what happened
                 if (!res.ok) {
+                    const text = await res.text().catch(() => '');
+                    console.error(`Fetch failed: ${res.status} ${res.statusText}`, text);
                     if (res.status === 503) throw new Error("Database connecting...");
-                    throw new Error("Failed to load settings");
+                    throw new Error(`Server returned ${res.status}: ${res.statusText}`);
                 }
                 
                 const data = await res.json();
                 
-                // Only populate if data exists in backend
                 if (data.mongoUri) setMongoUri(data.mongoUri);
                 if (data.dbName) setDbName(data.dbName);
                 if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
@@ -164,6 +164,8 @@ const Settings = ({ onMenuClick }) => {
                 if (data.isCopyMode !== undefined) setIsCopyMode(data.isCopyMode);
             } catch (err) {
                 console.error("Failed to fetch settings:", err);
+                // We do NOT toast here automatically to avoid spamming user if API is initializing.
+                // Just let the form be empty or hold defaults.
             }
         };
         loadSettings();

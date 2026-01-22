@@ -1,5 +1,4 @@
-
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { html } from 'htm/react';
 import Sidebar from './components/Sidebar.js';
 import Dashboard from './pages/Dashboard.js';
@@ -12,8 +11,26 @@ import { ToastProvider } from './hooks/useToast.js';
 const App = () => {
   const [currentPage, setCurrentPage] = useState('Settings');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  const uncategorizedCount = 3; 
+  const [uncategorizedCount, setUncategorizedCount] = useState(0);
+
+  // Poll for counts to update Sidebar badge
+  useEffect(() => {
+    const fetchCounts = async () => {
+        try {
+            const res = await fetch('/api/dashboard');
+            if (res.ok) {
+                const data = await res.json();
+                setUncategorizedCount(data.uncategorized || 0);
+            }
+        } catch (e) {
+            console.error("Failed to fetch counts", e);
+        }
+    };
+
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 15000); // Poll every 15s
+    return () => clearInterval(interval);
+  }, []);
 
   const handleSetCurrentPage = (page) => {
     setCurrentPage(page);

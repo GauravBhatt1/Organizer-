@@ -7,11 +7,15 @@ import Input from '../components/Input.js';
 import Spinner from '../components/Spinner.js';
 import { SearchIcon, FileIcon, CheckCircleIcon } from '../lib/icons.js';
 import { useToast } from '../hooks/useToast.js';
+import { searchMovies } from '../lib/tmdb.js';
 
 const Uncategorized = ({ onMenuClick }) => {
     const [uncategorizedItems, setUncategorizedItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedItem, setSelectedItem] = useState(null);
+    const [isSearching, setIsSearching] = useState(false);
+    const [searchResults, setSearchResults] = useState([]);
+    const [searchQuery, setSearchQuery] = useState('');
     const { addToast } = useToast();
 
     useEffect(() => {
@@ -29,49 +33,109 @@ const Uncategorized = ({ onMenuClick }) => {
 
     const openSearchModal = (item) => {
         setSelectedItem(item);
+        setSearchQuery(item.fileName.replace(/\.(mkv|mp4|avi)$/i, '').replace(/[\._]/g, ' '));
+        setSearchResults([]);
+    };
+    
+    const handleSearch = async () => {
+        if (!searchQuery.trim()) return;
+        setIsSearching(true);
+        
+        try {
+            const apiKey = localStorage.getItem('tmdb_api_key');
+            if (!apiKey) {
+                addToast('Please set TMDB API Key in Settings', 'error');
+                setIsSearching(false);
+                return;
+            }
+
+            const results = await searchMovies(searchQuery, apiKey);
+            setSearchResults(results);
+        } catch (error) {
+            console.error(error);
+            addToast('Failed to search TMDB', 'error');
+            setSearchResults([]);
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    const handleSelectResult = (result) => {
+        addToast(`Organized '${result.title}' successfully! (Mock Action)`, 'success');
+        if (selectedItem) {
+            setUncategorizedItems(prev => prev.filter(item => item.id !== selectedItem.id));
+        }
+        closeSearchModal();
     };
 
     const closeSearchModal = () => {
         setSelectedItem(null);
+        setSearchQuery('');
+        setSearchResults([]);
     };
+
+    const modalTitle = selectedItem ? `Identify: ${selectedItem.fileName}` : 'Identify';
     
     return html`
-        <div className="flex flex-col h-full bg-gray-900">
+        <div className="flex flex-col h-full">
             <${Header} title="Uncategorized Items" onMenuClick=${onMenuClick} />
-            <div className="p-8 overflow-y-auto">
+            <div className="p-6 overflow-y-auto">
                 ${loading ? html`<div className="flex justify-center pt-20"><${Spinner} size="lg"/></div>` : html`
-                    <ul className="space-y-4 max-w-5xl mx-auto">
+                    <ul className="space-y-3">
                         ${uncategorizedItems.map(item => html`
-                            <li key=${item._id || item.id} className="bg-gray-800/40 border border-gray-700/50 hover:border-brand-purple/50 p-5 rounded-xl flex items-center justify-between transition-all duration-200 hover:bg-gray-800/70 group">
-                                <div className="flex items-center gap-5 overflow-hidden">
-                                    <div className="p-3 bg-gray-700/50 rounded-lg text-gray-400 group-hover:text-brand-purple transition-colors">
-                                        <${FileIcon} className="w-8 h-8" />
-                                    </div>
+                            <li key=${item._id || item.id} className="bg-gray-800 p-4 rounded-lg flex items-center justify-between">
+                                <div className="flex items-center gap-4 overflow-hidden">
+                                    <${FileIcon} className="w-6 h-6 text-gray-400 flex-shrink-0" />
                                     <div className="truncate">
-                                        <p className="font-semibold text-lg text-gray-200 truncate group-hover:text-white">${item.fileName}</p>
-                                        <p className="text-sm text-gray-500 font-mono truncate mt-0.5">${item.filePath}</p>
+                                        <p className="font-mono text-white truncate">${item.fileName}</p>
+                                        <p className="text-sm text-gray-500 font-mono truncate">${item.filePath}</p>
                                     </div>
                                 </div>
-                                <${Button} onClick=${() => openSearchModal(item)} icon=${html`<${SearchIcon} />`} className="flex-shrink-0 ml-4">
+                                <${Button} onClick=${() => openSearchModal(item)} icon=${html`<${SearchIcon} />`} className="flex-shrink-0">
                                     Identify
                                 </${Button}>
                             </li>
                         `)}
                         ${uncategorizedItems.length === 0 && html`
-                        <div className="text-center py-20 text-gray-500 bg-gray-800/20 rounded-2xl border border-gray-800 border-dashed">
-                            <${CheckCircleIcon} className="w-16 h-16 mx-auto mb-4 text-green-500/20" />
-                            <p className="text-xl font-medium text-gray-400">All caught up!</p>
-                            <p className="text-sm mt-2">No uncategorized files found.</p>
-                        </div>
+                          <div className="text-center py-10 text-gray-500">
+                            <p className="text-lg">No uncategorized items found.</p>
+                            <p>Your library is perfectly organized!</p>
+                          </div>
                         `}
                     </ul>
                 `}
             </div>
 
-            <${Modal} isOpen=${!!selectedItem} onClose=${closeSearchModal} title="Identify Media">
-                <div className="p-4 text-center">
-                    <p className="mb-4">Manual identification feature coming soon.</p>
-                    <p className="text-sm text-gray-400">Selected: ${selectedItem?.fileName}</p>
+            <${Modal} isOpen=${!!selectedItem} onClose=${closeSearchModal} title=${modalTitle}>
+                <div className="space-y-4">
+                    <div className="flex gap-2">
+                        <${Input} 
+                            label="Search TMDB" 
+                            id="tmdb-search" 
+                            value=${searchQuery}
+                            onChange=${(e) => setSearchQuery(e.target.value)}
+                            onKeyDown=${(e) => e.key === 'Enter' && handleSearch()}
+                            autoFocus
+                        />
+                        <${Button} onClick=${handleSearch} isLoading=${isSearching} className="self-end">Search</${Button}>
+                    </div>
+
+                    <div className="max-h-96 overflow-y-auto space-y-2 pr-2">
+                        ${isSearching && html`<div className="flex justify-center p-8"><${Spinner} /></div>`}
+                        ${!isSearching && searchResults.length === 0 && searchQuery && html`
+                            <div className="text-center text-gray-500 py-4">No results found</div>
+                        `}
+                        ${searchResults.map(result => html`
+                            <div key=${result.id} className="flex items-center gap-4 bg-gray-700 p-3 rounded-lg hover:bg-gray-600 transition-colors">
+                                <img src="${result.posterPath ? `https://image.tmdb.org/t/p/w92${result.posterPath}` : 'https://placehold.co/92x138?text=No+Img'}" alt=${result.title} className="w-12 h-auto rounded shadow-sm object-cover"/>
+                                <div className="flex-1">
+                                    <p className="font-bold text-white">${result.title}</p>
+                                    <p className="text-sm text-gray-400">${result.year}</p>
+                                </div>
+                                <${Button} variant="secondary" onClick=${() => handleSelectResult(result)}>Select</${Button}>
+                            </div>
+                        `)}
+                    </div>
                 </div>
             </${Modal}>
         </div>
