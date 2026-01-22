@@ -1,3 +1,4 @@
+
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -16,10 +17,11 @@ const CONFIG_FILE = path.join(__dirname, 'config.json');
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname));
 
+// --- Security & Constants ---
 const JAIL_PATH = '/host';
 
+// --- Configuration Management ---
 function loadConfig() {
     try {
         if (fs.existsSync(CONFIG_FILE)) {
@@ -44,6 +46,7 @@ function saveConfig(newConfig) {
     }
 }
 
+// --- MongoDB Setup ---
 let client;
 let db;
 let currentConfig = loadConfig();
@@ -76,7 +79,7 @@ const sanitizePath = (requestedPath) => {
   return normalized;
 };
 
-// --- API Routes ---
+// --- API Routes (Must be defined BEFORE static files) ---
 
 app.post('/api/mongo/test', async (req, res) => {
     try {
@@ -89,6 +92,49 @@ app.post('/api/mongo/test', async (req, res) => {
         res.json({ success: true, message: 'Connection Successful!' });
     } catch (err) {
         res.status(400).json({ success: false, message: `Connection failed: ${err.message}` });
+    }
+});
+
+// TMDB Proxy Endpoints
+app.get('/api/tmdb/test', async (req, res) => {
+    const apiKey = req.query.key;
+    if (!apiKey) return res.status(400).json({ message: 'Missing API Key' });
+
+    try {
+        const tmdbUrl = `https://api.themoviedb.org/3/configuration?api_key=${apiKey}`;
+        const response = await fetch(tmdbUrl);
+        const data = await response.json();
+        
+        if (response.ok) {
+            res.json({ success: true, status_code: response.status, message: 'Connection Successful' });
+        } else {
+            res.status(response.status).json({ success: false, status_code: response.status, message: data.status_message || 'Invalid API Key' });
+        }
+    } catch (error) {
+        console.error('Backend TMDB Error:', error);
+        res.status(500).json({ success: false, status_code: 500, message: 'Internal Server Error: Unable to reach TMDB' });
+    }
+});
+
+app.get('/api/tmdb/search', async (req, res) => {
+    const { type, query, key, language } = req.query;
+    if (!key) return res.status(400).json({ message: 'Missing API Key' });
+    if (!query) return res.status(400).json({ message: 'Missing Query' });
+    if (!type || !['movie', 'tv'].includes(type)) return res.status(400).json({ message: 'Invalid or missing search type' });
+
+    try {
+        const tmdbUrl = `https://api.themoviedb.org/3/search/${type}?api_key=${key}&language=${language || 'en-US'}&page=1&include_adult=false&query=${encodeURIComponent(query)}`;
+        const response = await fetch(tmdbUrl);
+        const data = await response.json();
+        
+        if (response.ok) {
+            res.json(data);
+        } else {
+            res.status(response.status).json(data);
+        }
+    } catch (error) {
+        console.error('Backend TMDB Search Error:', error);
+        res.status(500).json({ message: 'Internal Server Error: Unable to reach TMDB' });
     }
 });
 
@@ -106,6 +152,7 @@ app.get('/api/settings', async (req, res) => {
         }
         res.json({ ...dbSettings, mongoUri: localConfig.mongoUri || '', dbName: localConfig.dbName || '' });
     } catch (e) {
+        console.error("Error serving settings:", e);
         res.status(500).json({ message: "Internal Server Error loading settings" });
     }
 });
@@ -178,11 +225,6 @@ app.get('/api/dashboard', async (req, res) => {
     try {
         if (!db) return res.json({ movies: 0, tvShows: 0, uncategorized: 0 });
         
-        // Parallel queries: 
-        // 1. Movies: simple count of organized items
-        // 2. TV: distinct count of Series ID (tmdb.id)
-        // 3. Uncategorized: simple count
-        
         const [moviesCount, tvAggregation, uncategorizedCount] = await Promise.all([
             db.collection('items').countDocuments({ type: 'movie', status: 'organized' }),
             
@@ -192,7 +234,7 @@ app.get('/api/dashboard', async (req, res) => {
                 { $count: "count" }
             ]).toArray(),
             
-            db.collection('items').countDocuments({ type: 'uncategorized' }) // status is usually 'uncategorized' or 'pending'
+            db.collection('items').countDocuments({ type: 'uncategorized' })
         ]);
 
         res.json({ 
@@ -227,7 +269,6 @@ app.get('/api/movies', async (req, res) => {
 app.get('/api/tvshows', async (req, res) => {
     try {
         if (!db) return res.json([]);
-        // Return unique TV Shows
         const shows = await db.collection('items').aggregate([
             { $match: { type: 'tv', status: 'organized' } },
             { $group: {
@@ -295,7 +336,13 @@ app.get('/api/fs/validate', (req, res) => {
   } catch (error) { res.json({ valid: false, message: error.message }); }
 });
 
-app.get('*', (req, res) => { res.sendFile(path.join(__dirname, 'index.html')); });
+// --- Static Files (Serve ONLY after API routes) ---
+app.use(express.static(__dirname));
+
+// Fallback for SPA
+app.get('*', (req, res) => { 
+    res.sendFile(path.join(__dirname, 'index.html')); 
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
