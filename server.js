@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { execSync } from 'child_process';
 import { MongoClient } from 'mongodb';
+import cors from 'cors';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,6 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
@@ -19,7 +21,7 @@ const JAIL_PATH = '/host';
 
 // --- MongoDB Setup ---
 const mongoUrl = process.env.MONGO_URL || 'mongodb://mongodb:27017';
-const client = new MongoClient(mongoUrl);
+const client = new MongoClient(mongoUrl, { serverSelectionTimeoutMS: 5000 });
 let db;
 
 async function connectDB() {
@@ -53,11 +55,14 @@ app.get('/api/settings', async (req, res) => {
             message: 'Database connection is still initializing. Please wait a few seconds and refresh.' 
         });
     }
+    // Check connection status using a ping command or simpler check if needed, 
+    // but usually driver handles it.
+    
     const settings = await db.collection('settings').findOne({ id: 'global' });
     res.json(settings || {});
   } catch (err) {
     console.error('Failed to get settings:', err);
-    res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+    res.status(500).json({ error: 'SERVER_ERROR', message: err.message || 'Unknown DB Error' });
   }
 });
 
@@ -100,7 +105,7 @@ app.get('/api/fs/list', (req, res) => {
     });
   } catch (error) {
     console.error('FS list error:', error);
-    res.status(500).json({ message: 'Error listing directory' });
+    res.status(500).json({ message: 'Error listing directory: ' + error.message });
   }
 });
 
@@ -119,26 +124,23 @@ app.get('/api/fs/validate', (req, res) => {
         const output = execSync(`findmnt -T ${checkPath}`).toString();
         if (!output) throw new Error('Mount check failed');
       } catch (e) {
-        return res.json({ valid: false, message: 'Storage mount not detected' });
+        return res.json({ valid: false, message: 'Storage mount not detected (Safety Mode)' });
       }
     }
     res.json({ valid: true });
   } catch (error) {
-    res.json({ valid: false, message: 'Permission denied' });
+    res.json({ valid: false, message: 'Permission denied or error: ' + error.message });
   }
 });
 
-// Proxy for TMDB Test - Crucial to avoid CORS and handle key correctly
+// Proxy for TMDB Test
 app.get('/api/tmdb/test', async (req, res) => {
   const apiKey = req.query.key;
   if (!apiKey) return res.status(400).json({ message: 'Missing Key' });
   try {
-    // We use the query parameter style which is more common for standard TMDB keys
     const tmdbUrl = `https://api.themoviedb.org/3/configuration?api_key=${apiKey}`;
     const response = await fetch(tmdbUrl);
     const data = await response.json();
-    
-    // Ensure we return clean JSON and forward status code
     res.status(response.status).json(data);
   } catch (error) {
     console.error('TMDB Proxy Error:', error);

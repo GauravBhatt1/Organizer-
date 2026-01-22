@@ -20,8 +20,27 @@ const SettingsCard = ({title, children, className = ''}) => html`
 
 const MongoSettings = React.memo(({ uri, dbName, status, onUriChange, onDbNameChange, onTest }) => html`
     <${SettingsCard} title="MongoDB Settings">
-        <${Input} label="Mongo URI (In Container)" id="mongo-uri" value=${uri} onChange=${onUriChange} disabled=${status === 'testing'} />
-        <${Input} label="Database Name" id="db-name" value=${dbName} onChange=${onDbNameChange} disabled=${status === 'testing'} />
+        <div className="space-y-1">
+            <${Input} 
+                label="Mongo URI" 
+                id="mongo-uri" 
+                value=${uri} 
+                onChange=${onUriChange} 
+                disabled=${status === 'testing'} 
+                placeholder="mongodb://username:password@host:port"
+            />
+            <p className="text-[10px] text-gray-500 italic px-1">
+                Tip: For internal Docker networking, use: <span className="text-gray-400 font-mono">mongodb://mongodb:27017</span>
+            </p>
+        </div>
+        <${Input} 
+            label="Database Name" 
+            id="db-name" 
+            value=${dbName} 
+            onChange=${onDbNameChange} 
+            disabled=${status === 'testing'} 
+            placeholder="jellyfin-organizer"
+        />
         <div className="flex items-center gap-4 pt-2">
             ${status === 'idle' && html`<${Button} variant="secondary" onClick=${onTest}>Test Connection</${Button}>`}
             ${status === 'testing' && html`<${Button} variant="secondary" isLoading=${true} disabled>Testing...</${Button}>`}
@@ -33,13 +52,13 @@ const MongoSettings = React.memo(({ uri, dbName, status, onUriChange, onDbNameCh
 
 const TmdbSettings = React.memo(({ apiKey, language, status, onApiKeyChange, onLanguageChange, onTest }) => html`
     <${SettingsCard} title="TMDB Settings" className="border-brand-purple/30 shadow-[0_0_15px_rgba(138,77,255,0.05)]">
-        <${Input} label="TMDB API Key" id="tmdb-key" type="password" value=${apiKey} onChange=${onApiKeyChange} disabled=${status === 'testing'} />
-        <${Input} label="Language" id="tmdb-lang" value=${language} onChange=${onLanguageChange} disabled=${status === 'testing'} />
+        <${Input} label="TMDB API Key" id="tmdb-key" type="password" value=${apiKey} onChange=${onApiKeyChange} disabled=${status === 'testing'} placeholder="Your TMDB v3 API Key" />
+        <${Input} label="Language" id="tmdb-lang" value=${language} onChange=${onLanguageChange} disabled=${status === 'testing'} placeholder="en-US" />
         <div className="flex items-center gap-4 pt-2">
             ${status === 'idle' && html`<${Button} variant="secondary" onClick=${onTest} disabled=${!apiKey}>Test TMDB Key</${Button}>`}
             ${status === 'testing' && html`<${Button} variant="secondary" isLoading=${true} disabled>Testing...</${Button}>`}
-            ${status === 'success' && html`<${Button} variant="success" icon=${html`<${CheckCircleIcon} />`} disabled>Valid</${Button}>`}
-            ${status === 'failed' && html`<${Button} variant="danger" icon=${html`<${ExclamationIcon} />`} disabled>Invalid</${Button}>`}
+            ${status === 'success' && html`<${Button} variant="success" icon=${html`<CheckCircleIcon />`} disabled>Valid</${Button}>`}
+            ${status === 'failed' && html`<${Button} variant="danger" icon=${html`<ExclamationIcon />`} disabled>Invalid</${Button}>`}
         </div>
     </${SettingsCard}>
 `);
@@ -105,9 +124,9 @@ const LibrarySettings = React.memo(({
 const Settings = ({ onMenuClick }) => {
     const { addToast } = useToast();
 
-    // State for settings
-    const [mongoUri, setMongoUri] = useState('mongodb://mongodb:27017');
-    const [dbName, setDbName] = useState('jellyfin-organizer');
+    // State for settings - initialized to empty strings, NOT defaults
+    const [mongoUri, setMongoUri] = useState('');
+    const [dbName, setDbName] = useState('');
     const [tmdbApiKey, setTmdbApiKey] = useState('');
     const [tmdbLanguage, setTmdbLanguage] = useState('en-US');
     const [movieRoots, setMovieRoots] = useState([]);
@@ -126,18 +145,28 @@ const Settings = ({ onMenuClick }) => {
         const loadSettings = async () => {
             try {
                 const res = await fetch('/api/settings');
-                const contentType = res.headers.get("content-type");
                 
                 if (!res.ok) {
-                    if (res.status === 503) throw new Error("Database is still connecting. Please wait...");
-                    throw new Error("Server error fetching settings");
+                    if (res.status === 503) {
+                         throw new Error("Database is still connecting. Please wait...");
+                    }
+                    let errorMsg = "Server error fetching settings";
+                    try {
+                        const errData = await res.json();
+                        if (errData.message) errorMsg = errData.message;
+                    } catch(e) {}
+                    throw new Error(errorMsg);
                 }
                 
+                const contentType = res.headers.get("content-type");
                 if (!contentType || !contentType.includes("application/json")) {
                     throw new Error("Received invalid response from server");
                 }
 
                 const data = await res.json();
+                // ONLY set if value exists in DB, otherwise remain as initialized (empty)
+                if (data.mongoUri) setMongoUri(data.mongoUri);
+                if (data.dbName) setDbName(data.dbName);
                 if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
                 if (data.tmdbLanguage) setTmdbLanguage(data.tmdbLanguage);
                 if (data.movieRoots) setMovieRoots(data.movieRoots);
@@ -152,14 +181,22 @@ const Settings = ({ onMenuClick }) => {
         loadSettings();
     }, [addToast]);
     
-    const handleMongoUriChange = useCallback((e) => setMongoUri(e.target.value), []);
+    const handleMongoUriChange = useCallback((e) => {
+        setMongoUri(e.target.value);
+        setMongoStatus('idle');
+    }, []);
     const handleDbNameChange = useCallback((e) => setDbName(e.target.value), []);
-    const handleTmdbApiKeyChange = useCallback((e) => setTmdbApiKey(e.target.value), []);
+    const handleTmdbApiKeyChange = useCallback((e) => {
+        setTmdbApiKey(e.target.value);
+        setTmdbStatus('idle');
+    }, []);
     const handleTmdbLanguageChange = useCallback((e) => setTmdbLanguage(e.target.value), []);
 
     const handleTestMongo = useCallback(async () => {
+        if (!mongoUri.trim()) {
+            return addToast("Mongo URI required to test connection.", "error");
+        }
         setMongoStatus('testing');
-        // Simple ping to backend to see if it responds correctly
         try {
             const res = await fetch('/api/settings');
             if (res.status === 503) {
@@ -175,7 +212,7 @@ const Settings = ({ onMenuClick }) => {
             setMongoStatus('failed');
             addToast('Could not verify MongoDB connection.', 'error');
         }
-    }, [addToast]);
+    }, [addToast, mongoUri]);
 
     const handleTestTmdb = useCallback(async () => {
         setTmdbStatus('testing');
@@ -203,8 +240,12 @@ const Settings = ({ onMenuClick }) => {
     }, [movieRoots, tvRoots, mountSafety, addToast]);
 
     const handleSaveAll = useCallback(async () => {
+        if (!mongoUri.trim()) {
+            return addToast("Mongo URI required to save settings.", "error");
+        }
+        
         setIsSaving(true);
-        const settings = { tmdbApiKey, tmdbLanguage, movieRoots, tvRoots, mountSafety, isCopyMode };
+        const settings = { mongoUri, dbName, tmdbApiKey, tmdbLanguage, movieRoots, tvRoots, mountSafety, isCopyMode };
         
         try {
             const res = await fetch('/api/settings', {
@@ -224,7 +265,7 @@ const Settings = ({ onMenuClick }) => {
         } finally {
             setIsSaving(false);
         }
-    }, [addToast, tmdbApiKey, tmdbLanguage, movieRoots, tvRoots, mountSafety, isCopyMode]);
+    }, [addToast, mongoUri, dbName, tmdbApiKey, tmdbLanguage, movieRoots, tvRoots, mountSafety, isCopyMode]);
     
     const removePath = useCallback((type, index) => {
         if (type === 'movie') setMovieRoots(prev => prev.filter((_, i) => i !== index));
