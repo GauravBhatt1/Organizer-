@@ -30,7 +30,7 @@ const MongoSettings = React.memo(({ uri, dbName, status, onUriChange, onDbNameCh
                 placeholder="mongodb+srv://user:pass@cluster.mongodb.net/"
             />
             <p className="text-[10px] text-gray-500 italic px-1">
-                Supports MongoDB Atlas (mongodb+srv://) and Standard URIs.
+                Enter your MongoDB Atlas URI. 
             </p>
         </div>
         <${Input} 
@@ -124,7 +124,7 @@ const LibrarySettings = React.memo(({
 const Settings = ({ onMenuClick }) => {
     const { addToast } = useToast();
 
-    // State for settings - initialized to empty strings, NOT defaults
+    // Initialize with empty strings, DO NOT use defaults
     const [mongoUri, setMongoUri] = useState('');
     const [dbName, setDbName] = useState('');
     const [tmdbApiKey, setTmdbApiKey] = useState('');
@@ -147,27 +147,13 @@ const Settings = ({ onMenuClick }) => {
                 const res = await fetch('/api/settings');
                 
                 if (!res.ok) {
-                    if (res.status === 503) {
-                         // 503 means DB connecting, but api/settings should still return partial config if file exists.
-                         // However, if we handle it in server correctly, it returns partial.
-                         throw new Error("Database is still connecting. Please wait...");
-                    }
-                    let errorMsg = "Server error fetching settings";
-                    try {
-                        const errData = await res.json();
-                        if (errData.message) errorMsg = errData.message;
-                    } catch(e) {}
-                    throw new Error(errorMsg);
+                    if (res.status === 503) throw new Error("Database connecting...");
+                    throw new Error("Failed to load settings");
                 }
                 
-                const contentType = res.headers.get("content-type");
-                if (!contentType || !contentType.includes("application/json")) {
-                    throw new Error("Received invalid response from server");
-                }
-
                 const data = await res.json();
                 
-                // Set data if present
+                // Only populate if data exists in backend
                 if (data.mongoUri) setMongoUri(data.mongoUri);
                 if (data.dbName) setDbName(data.dbName);
                 if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
@@ -178,11 +164,10 @@ const Settings = ({ onMenuClick }) => {
                 if (data.isCopyMode !== undefined) setIsCopyMode(data.isCopyMode);
             } catch (err) {
                 console.error("Failed to fetch settings:", err);
-                // Don't show toast on load failure immediately, user might just need to enter keys
             }
         };
         loadSettings();
-    }, [addToast]);
+    }, []);
     
     const handleMongoUriChange = useCallback((e) => {
         setMongoUri(e.target.value);

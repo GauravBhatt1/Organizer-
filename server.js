@@ -71,7 +71,7 @@ async function connectDB(uri) {
     }
 }
 
-// Attempt initial connection if URI exists
+// Attempt initial connection if URI exists in config file
 if (currentConfig.mongoUri) {
     connectDB(currentConfig.mongoUri);
 }
@@ -91,6 +91,7 @@ app.post('/api/mongo/test', async (req, res) => {
     const { uri } = req.body;
     if (!uri) return res.status(400).json({ message: 'URI is required' });
 
+    // Use a separate client for testing to avoid disrupting the main connection
     const testClient = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
     try {
         await testClient.connect();
@@ -104,14 +105,12 @@ app.post('/api/mongo/test', async (req, res) => {
 
 // 2. Get Settings
 app.get('/api/settings', async (req, res) => {
-    // Always return the local config (mongoUri) even if DB is down
     const localConfig = loadConfig();
     let dbSettings = {};
 
     if (db) {
         try {
             dbSettings = await db.collection('settings').findOne({ id: 'global' }) || {};
-            // Remove internal ID
             delete dbSettings._id;
             delete dbSettings.id;
         } catch (err) {
@@ -143,7 +142,6 @@ app.post('/api/settings', async (req, res) => {
                 console.log("Mongo URI changed, reconnecting...");
                 await connectDB(mongoUri);
             } else if (hasDbNameChanged && client) {
-                // Just switch DB reference if only name changed
                 db = client.db(dbName); 
             }
         }
@@ -156,10 +154,8 @@ app.post('/api/settings', async (req, res) => {
                 { upsert: true }
             );
         } else if (!mongoUri) {
-             return res.status(400).json({ 
-                error: 'NO_DB', 
-                message: 'Mongo URI not configured. Open Settings and save Mongo URI.' 
-            });
+             // If we don't have a DB and no URI was provided to save, we can't do anything for app settings
+             // But we successfully saved the empty/partial local config above.
         }
 
         res.json({ success: true });
@@ -167,6 +163,52 @@ app.post('/api/settings', async (req, res) => {
     } catch (err) {
         console.error('Failed to save settings:', err);
         res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
+    }
+});
+
+// --- Data Endpoints (Return Real Data or Empty) ---
+
+app.get('/api/dashboard', async (req, res) => {
+    if (!db) return res.json({ movies: 0, tvShows: 0, uncategorized: 0 });
+    try {
+        const [movies, tvShows, uncategorized] = await Promise.all([
+            db.collection('movies').countDocuments(),
+            db.collection('tvshows').countDocuments(),
+            db.collection('uncategorized').countDocuments()
+        ]);
+        res.json({ movies, tvShows, uncategorized });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/movies', async (req, res) => {
+    if (!db) return res.json([]);
+    try {
+        const movies = await db.collection('movies').find().toArray();
+        res.json(movies);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/tvshows', async (req, res) => {
+    if (!db) return res.json([]);
+    try {
+        const shows = await db.collection('tvshows').find().toArray();
+        res.json(shows);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/uncategorized', async (req, res) => {
+    if (!db) return res.json([]);
+    try {
+        const items = await db.collection('uncategorized').find().toArray();
+        res.json(items);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
 
