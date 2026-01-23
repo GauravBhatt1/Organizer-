@@ -8,6 +8,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import cors from 'cors';
 import { runScanJob } from './lib/scanner.js';
 import { organizeMediaItem } from './lib/organizer.js';
+import { toContainerPath, toHostPath } from './lib/pathUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +20,12 @@ const CONFIG_FILE = path.join(__dirname, 'config.json');
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// API Response Helper Middleware (Enforce JSON)
+app.use('/api', (req, res, next) => {
+    res.type('json');
+    next();
+});
 
 // Request Logger
 app.use((req, res, next) => {
@@ -79,13 +86,6 @@ async function connectDB(uri) {
 if (currentConfig.mongoUri) {
     connectDB(currentConfig.mongoUri);
 }
-
-const sanitizePath = (requestedPath) => {
-  if (!requestedPath) return '/host';
-  const normalized = path.normalize(requestedPath);
-  if (!normalized.startsWith('/host')) return '/host';
-  return normalized;
-};
 
 // ================= API ROUTES =================
 
@@ -192,7 +192,8 @@ app.post('/api/organize', async (req, res) => {
     try {
         if (!db) return res.status(503).json({ message: 'Database not connected' });
         
-        // params: sourcePath, type, tmdbData
+        // Body: { sourcePath (HOST PATH), type, tmdbData }
+        // Organizer logic will handle path translation
         const result = await organizeMediaItem(db, req.body);
         res.json(result);
     } catch (e) {
@@ -219,6 +220,7 @@ app.post('/api/scan/start', async (req, res) => {
             errors: []
         };
         const result = await db.collection('jobs').insertOne(job);
+        // Scanner runs asynchronously
         runScanJob(db, result.insertedId, { dryRun, isCopyMode }).catch(err => {
             console.error("Scanner Error:", err);
             db.collection('jobs').updateOne({ _id: result.insertedId }, { $set: { status: 'failed', finishedAt: new Date() } });
@@ -249,12 +251,13 @@ app.get('/api/dashboard', async (req, res) => {
     try {
         if (!db) return res.json({ movies: 0, tvShows: 0, uncategorized: 0 });
         
+        // Logic Update: Count TV Series (Distinct TMDB ID), not files
         const [moviesCount, tvAggregation, uncategorizedCount] = await Promise.all([
             db.collection('items').countDocuments({ type: 'movie', status: 'organized' }),
             
             db.collection('items').aggregate([
                 { $match: { type: 'tv', status: 'organized' } },
-                { $group: { _id: "$tmdb.id" } },
+                { $group: { _id: "$tmdb.id" } }, // Group by TMDB ID (Show level)
                 { $count: "count" }
             ]).toArray(),
             
@@ -293,15 +296,17 @@ app.get('/api/movies', async (req, res) => {
 app.get('/api/tvshows', async (req, res) => {
     try {
         if (!db) return res.json([]);
+        // Aggregate to return unique Shows, not episodes
         const shows = await db.collection('items').aggregate([
             { $match: { type: 'tv', status: 'organized' } },
+            { $sort: { 'tmdb.season': 1, 'tmdb.episode': 1 } }, // Sort episodes first
             { $group: {
-                _id: "$tmdb.id",
+                _id: "$tmdb.id", // Group by Show ID
                 title: { $first: "$tmdb.title" },
                 year: { $first: "$tmdb.year" },
                 posterPath: { $first: "$tmdb.posterPath" },
                 overview: { $first: "$tmdb.overview" },
-                filePath: { $first: "$destPath" }
+                filePath: { $first: "$destPath" } // Just pick first file as root example
             }},
             { $sort: { title: 1 } }
         ]).toArray();
@@ -312,7 +317,7 @@ app.get('/api/tvshows', async (req, res) => {
             year: s.year,
             posterPath: s.posterPath,
             overview: s.overview,
-            filePath: s.filePath
+            filePath: path.dirname(path.dirname(s.filePath)) // Approximation of show root
         })));
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -321,7 +326,7 @@ app.get('/api/uncategorized', async (req, res) => {
     try {
         if (!db) return res.json([]);
         const items = await db.collection('items')
-            .find({ type: 'uncategorized' })
+            .find({ status: 'uncategorized' }) // Fix query
             .limit(100)
             .toArray();
         res.json(items.map(i => ({
@@ -334,33 +339,56 @@ app.get('/api/uncategorized', async (req, res) => {
 
 // File System Routes
 app.get('/api/fs/list', (req, res) => {
-  const requestPath = sanitizePath(req.query.path);
+  const hostPath = req.query.path || '/'; // This is a HOST path request
   try {
-    if (!fs.existsSync(requestPath)) return res.status(404).json({ message: 'Path not found' });
-    const stats = fs.statSync(requestPath);
+    const containerPath = toContainerPath(hostPath); // Convert to CONTAINER path for fs
+
+    if (!fs.existsSync(containerPath)) return res.status(404).json({ message: 'Path not found' });
+    const stats = fs.statSync(containerPath);
     if (!stats.isDirectory()) return res.status(400).json({ message: 'Not a directory' });
-    const items = fs.readdirSync(requestPath, { withFileTypes: true })
+    
+    const items = fs.readdirSync(containerPath, { withFileTypes: true })
       .filter(item => item.isDirectory())
-      .map(item => ({ name: item.name, path: path.join(requestPath, item.name), isDir: true }))
+      .map(item => ({ 
+          name: item.name, 
+          // Return HOST paths to the frontend
+          path: toHostPath(path.join(containerPath, item.name)), 
+          isDir: true 
+      }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    res.json({ currentPath: requestPath, parentPath: requestPath === '/host' ? null : path.dirname(requestPath), items });
+      
+    res.json({ 
+        currentPath: toHostPath(containerPath), 
+        parentPath: toHostPath(path.dirname(containerPath)), 
+        items 
+    });
   } catch (error) { res.status(500).json({ message: 'FS Error: ' + error.message }); }
 });
 
 app.get('/api/fs/validate', (req, res) => {
-  const checkPath = sanitizePath(req.query.path);
+  const hostPath = req.query.path;
   const checkMount = req.query.mountSafety === 'true';
+  const containerPath = toContainerPath(hostPath);
+
   try {
-    if (!fs.existsSync(checkPath)) return res.json({ valid: false, message: 'Path not found' });
-    try { fs.accessSync(checkPath, fs.constants.R_OK); } catch(e) { return res.json({ valid: false, message: 'Permission denied' }); }
+    if (!fs.existsSync(containerPath)) return res.json({ valid: false, message: 'Path not found' });
+    try { fs.accessSync(containerPath, fs.constants.R_OK); } catch(e) { return res.json({ valid: false, message: 'Permission denied' }); }
+    
     if (checkMount) {
-      try { execSync(`findmnt -T "${checkPath}"`); } catch (e) { return res.json({ valid: false, message: 'Not a mount point' }); }
+      try { execSync(`findmnt -T "${containerPath}"`); } catch (e) { return res.json({ valid: false, message: 'Not a mount point' }); }
     }
     res.json({ valid: true });
   } catch (error) { res.json({ valid: false, message: error.message }); }
 });
 
-// API 404 Fallback
+// API Error Fallback (Strict JSON)
+app.use('/api/*', (err, req, res, next) => {
+    console.error(`[API Error] ${err.message}`);
+    if (!res.headersSent) {
+        res.status(500).json({ success: false, message: err.message || "Internal Server Error" });
+    }
+});
+
 app.use('/api/*', (req, res) => {
     res.status(404).json({ error: 'API endpoint not found', path: req.originalUrl });
 });
@@ -377,5 +405,5 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Host Access mounted at: /host`);
+  console.log(`Container Host Mount: /host`);
 });
