@@ -261,7 +261,7 @@ app.get('/api/dashboard', async (req, res) => {
                 { $count: "count" }
             ]).toArray(),
             
-            db.collection('items').countDocuments({ type: 'uncategorized' })
+            db.collection('items').countDocuments({ status: 'uncategorized' })
         ]);
 
         res.json({ 
