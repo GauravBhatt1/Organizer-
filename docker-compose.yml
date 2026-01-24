@@ -6,8 +6,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Maps the host root (/) to /host inside the container for browsing
-      - ${HOST_ROOT:-/}:/host:rw
+      # Jellyfin-style mapping: Host media folder -> /data container folder
+      - /home/ubuntu:/data:rw
     networks:
       - jf-network
 

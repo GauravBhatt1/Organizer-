@@ -129,8 +129,8 @@ const Settings = ({ onMenuClick }) => {
     const [dbName, setDbName] = useState('');
     const [tmdbApiKey, setTmdbApiKey] = useState('');
     const [tmdbLanguage, setTmdbLanguage] = useState('en-US');
-    const [movieRoots, setMovieRoots] = useState([]);
-    const [tvRoots, setTvRoots] = useState([]);
+    const [movieRoots, setMovieRoots] = useState(['/data/movies']);
+    const [tvRoots, setTvRoots] = useState(['/data/tvshows']);
     const [mountSafety, setMountSafety] = useState(true);
     const [isCopyMode, setIsCopyMode] = useState(false);
 
@@ -224,7 +224,7 @@ const Settings = ({ onMenuClick }) => {
     }, [addToast, tmdbApiKey]);
 
     const handleTestMounts = useCallback(async () => {
-        addToast('Verifying host storage access...', 'info');
+        addToast('Verifying storage access...', 'info');
         const allPaths = [...movieRoots, ...tvRoots];
         if (allPaths.length === 0) return addToast('No paths to test.', 'error');
 
@@ -240,7 +240,7 @@ const Settings = ({ onMenuClick }) => {
         }
 
         if (successCount === allPaths.length) addToast(`All paths verified!`, 'success');
-        else addToast(`${allPaths.length - successCount} paths failed.`, 'error');
+        else addToast(`${allPaths.length - successCount} paths failed (Must be in /data).`, 'error');
     }, [movieRoots, tvRoots, mountSafety, addToast]);
 
     const handleSaveAll = useCallback(async () => {

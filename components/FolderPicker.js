@@ -7,7 +7,7 @@ import Spinner from './Spinner.js';
 import { FileIcon, CloseIcon } from '../lib/icons.js';
 
 const FolderPicker = ({ isOpen, onClose, onSelect, title = "Select Folder" }) => {
-  const [currentPath, setCurrentPath] = useState('/host');
+  const [currentPath, setCurrentPath] = useState('/data');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -17,7 +17,10 @@ const FolderPicker = ({ isOpen, onClose, onSelect, title = "Select Folder" }) =>
     setError(null);
     try {
       const res = await fetch(`/api/fs/list?path=${encodeURIComponent(path)}`);
-      if (!res.ok) throw new Error('Failed to load directory');
+      if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.message || 'Failed to load directory');
+      }
       const data = await res.json();
       setItems(data.items);
       setCurrentPath(data.currentPath);
@@ -30,19 +33,21 @@ const FolderPicker = ({ isOpen, onClose, onSelect, title = "Select Folder" }) =>
 
   useEffect(() => {
     if (isOpen) {
-      fetchFolders(currentPath);
+      // Always reset to /data or current if valid
+      fetchFolders(currentPath.startsWith('/data') ? currentPath : '/data');
     }
   }, [isOpen]);
 
   const navigateTo = (path) => fetchFolders(path);
 
   const goUp = () => {
-    if (currentPath === '/host') return;
-    const parent = currentPath.split('/').slice(0, -1).join('/') || '/host';
+    if (currentPath === '/data') return;
+    const parent = currentPath.split('/').slice(0, -1).join('/') || '/data';
     navigateTo(parent);
   };
 
-  const breadcrumbs = currentPath.replace('/host', 'Host').split('/').filter(Boolean);
+  // Visual breadcrumbs: /data/movies -> Data > movies
+  const breadcrumbs = currentPath.replace('/data', 'Data').split('/').filter(Boolean);
 
   return html`
     <${Modal} isOpen=${isOpen} onClose=${onClose} title=${title}>
@@ -54,7 +59,7 @@ const FolderPicker = ({ isOpen, onClose, onSelect, title = "Select Folder" }) =>
               ${i > 0 && html`<span className="mx-1">/</span>`}
               <button 
                 onClick=${() => {
-                  const target = '/host' + currentPath.split('/host')[1].split('/').slice(0, i + 1).join('/');
+                  const target = '/data' + currentPath.split('/data')[1].split('/').slice(0, i + 1).join('/');
                   navigateTo(target);
                 }}
                 className="hover:text-brand-purple"
@@ -71,7 +76,7 @@ const FolderPicker = ({ isOpen, onClose, onSelect, title = "Select Folder" }) =>
           
           ${!loading && html`
             <div className="divide-y divide-gray-800">
-              ${currentPath !== '/host' && html`
+              ${currentPath !== '/data' && html`
                 <button 
                   onClick=${goUp}
                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-gray-400 transition-colors text-left"
