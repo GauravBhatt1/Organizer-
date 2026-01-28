@@ -61,7 +61,6 @@ async function connectDB(uri) {
         // --- MIGRATION: Fix Paths & Settings ---
         console.log("Running path migration check...");
         
-        // 1. Fix Settings (Change /host -> /data)
         const settings = await db.collection('settings').findOne({ id: 'global' });
         if (settings) {
             const fixPathArr = (arr) => (arr || []).map(p => p.startsWith('/host') ? p.replace('/host', '/data') : p);
@@ -77,7 +76,7 @@ async function connectDB(uri) {
             }
         }
 
-        // 2. Wipe Items with invalid paths (Hard reset for cleanliness)
+        // Wipe Items with invalid paths
         const invalidItems = await db.collection('items').countDocuments({ srcPath: { $not: { $regex: /^\/data/ } } });
         if (invalidItems > 0) {
             console.log(`Found ${invalidItems} invalid path items. Clearing library for rescan...`);
@@ -94,6 +93,53 @@ async function connectDB(uri) {
 if (currentConfig.mongoUri) connectDB(currentConfig.mongoUri);
 
 // --- ROUTES ---
+
+// TMDB Proxy - Improved with logging and trimming
+app.get('/api/tmdb/search', async (req, res) => {
+    const { type, query, key, language } = req.query;
+    const safeKey = (key || '').trim();
+
+    if (!safeKey) return res.status(400).json({ message: 'Missing API Key' });
+    if (!query) return res.status(400).json({ message: 'Missing Query' });
+    if (!type || !['movie', 'tv'].includes(type)) return res.status(400).json({ message: 'Invalid or missing search type' });
+
+    try {
+        console.log(`[TMDB] Searching ${type}: ${query}`);
+        const tmdbUrl = `https://api.themoviedb.org/3/search/${type}?api_key=${safeKey}&language=${language || 'en-US'}&page=1&include_adult=false&query=${encodeURIComponent(query)}`;
+        const response = await fetch(tmdbUrl);
+        const data = await response.json();
+        
+        if (response.ok) {
+            res.json(data);
+        } else {
+            console.error(`[TMDB] Error ${response.status}:`, data);
+            res.status(response.status).json(data);
+        }
+    } catch (error) {
+        console.error('[TMDB] Fetch Error:', error);
+        res.status(500).json({ message: 'Internal Server Error: Unable to reach TMDB' });
+    }
+});
+
+// TMDB Test
+app.get('/api/tmdb/test', async (req, res) => {
+    const apiKey = (req.query.key || '').trim();
+    if (!apiKey) return res.status(400).json({ message: 'Missing API Key' });
+
+    try {
+        const tmdbUrl = `https://api.themoviedb.org/3/configuration?api_key=${apiKey}`;
+        const response = await fetch(tmdbUrl);
+        if (response.ok) {
+            res.json({ success: true, status_code: response.status, message: 'Connection Successful' });
+        } else {
+            const data = await response.json();
+            res.status(response.status).json({ success: false, message: data.status_message || 'Invalid API Key' });
+        }
+    } catch (error) {
+        console.error('Backend TMDB Error:', error);
+        res.status(500).json({ success: false, message: 'Internal Server Error: Unable to reach TMDB' });
+    }
+});
 
 app.post('/api/mongo/test', async (req, res) => {
     try {
@@ -163,10 +209,19 @@ app.post('/api/scan/start', async (req, res) => {
             logs: [], errors: []
         };
         const r = await db.collection('jobs').insertOne(job);
+        
+        // Ensure error logging catches crashes
         runScanJob(db, r.insertedId, { dryRun, isCopyMode }).catch(e => {
-            console.error(e);
-            db.collection('jobs').updateOne({ _id: r.insertedId }, { $set: { status: 'failed' } });
+            console.error("Critical Scanner Crash:", e);
+            db.collection('jobs').updateOne({ _id: r.insertedId }, { 
+                $set: { 
+                    status: 'failed', 
+                    finishedAt: new Date(),
+                    errors: [{ path: 'System', error: e.message || 'Critical Crash' }]
+                } 
+            });
         });
+        
         res.json({ success: true, jobId: r.insertedId });
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
@@ -235,8 +290,6 @@ app.get('/api/movies', async (req, res) => {
 app.get('/api/tvshows', async (req, res) => {
     try {
         if (!db) return res.json([]);
-        // Return files for now as requested by "count" logic logic, or group by series for UI?
-        // UI expects unique shows. Let's aggregate for UI list, but dashboard count handles files.
         const shows = await db.collection('items').aggregate([
             { $match: { type: 'tv', status: 'organized' } },
             { $group: {
