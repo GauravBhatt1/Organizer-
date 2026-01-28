@@ -115,7 +115,12 @@ const Uncategorized = ({ onMenuClick }) => {
                                 <div className="flex items-center gap-4 overflow-hidden">
                                     <${FileIcon} className="w-6 h-6 text-gray-400 flex-shrink-0" />
                                     <div className="truncate">
-                                        <p className="font-mono text-white truncate">${item.fileName}</p>
+                                        <div className="flex items-center gap-2">
+                                            <p className="font-mono text-white truncate">${item.fileName}</p>
+                                            ${item.quality && html`
+                                                <span className="text-xs bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded border border-gray-600 font-bold">${item.quality}</span>
+                                            `}
+                                        </div>
                                         <p className="text-sm text-gray-500 font-mono truncate">${item.filePath}</p>
                                     </div>
                                 </div>

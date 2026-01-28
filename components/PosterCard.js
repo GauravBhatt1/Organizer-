@@ -23,7 +23,12 @@ const PosterCard = ({ item, onClick }) => {
       
       <div className="px-1">
         <h3 className="text-white font-semibold truncate text-base group-hover:text-brand-purple transition-colors">${item.title}</h3>
-        <p className="text-gray-500 text-sm font-medium">${item.year}</p>
+        <p className="text-gray-500 text-sm font-medium flex items-center gap-2">
+            ${item.year}
+            ${item.quality && html`
+                <span className="text-xs bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded border border-gray-600 font-bold">${item.quality}</span>
+            `}
+        </p>
       </div>
     </div>
   `;

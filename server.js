@@ -9,6 +9,7 @@ import { runScanJob } from './lib/scanner.js';
 import { organizeMediaItem } from './lib/organizer.js';
 import { isValidDataPath, DATA_ROOT } from './lib/pathUtils.js';
 import { randomUUID } from 'crypto';
+import { parseMediaMetaFromFilename } from './lib/metadataParser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -315,7 +316,17 @@ app.get('/api/uncategorized', async (req, res) => {
         .find({ libraryId: ctx.libraryId, scanId: ctx.scanId, status: 'uncategorized' })
         .limit(100)
         .toArray();
-    res.json(items.map(i => ({ id: i._id, fileName: path.basename(i.srcPath), filePath: i.srcPath })));
+    
+    // Compute quality from filename if missing in DB
+    res.json(items.map(i => {
+        const quality = i.quality || parseMediaMetaFromFilename(path.basename(i.srcPath)).quality;
+        return { 
+            id: i._id, 
+            fileName: path.basename(i.srcPath), 
+            filePath: i.srcPath,
+            quality
+        };
+    }));
 });
 
 app.get('/api/fs/list', (req, res) => {
@@ -350,10 +361,16 @@ app.get('/api/movies', async (req, res) => {
         const movies = await db.collection('items')
             .find({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'movie', status: 'organized' })
             .sort({ 'tmdb.title': 1 }).limit(100).toArray();
-        res.json(movies.map(m => ({
-            id: m._id, title: m.tmdb?.title, year: m.tmdb?.year,
-            posterPath: m.tmdb?.posterPath, overview: m.tmdb?.overview, filePath: m.destPath
-        })));
+        
+        res.json(movies.map(m => {
+            // Compute quality fallback
+            const quality = m.quality || parseMediaMetaFromFilename(path.basename(m.srcPath)).quality;
+            return {
+                id: m._id, title: m.tmdb?.title, year: m.tmdb?.year,
+                posterPath: m.tmdb?.posterPath, overview: m.tmdb?.overview, filePath: m.destPath,
+                quality
+            };
+        }));
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -370,14 +387,22 @@ app.get('/api/tvshows', async (req, res) => {
                 year: { $first: "$tmdb.year" },
                 posterPath: { $first: "$tmdb.posterPath" },
                 overview: { $first: "$tmdb.overview" },
-                filePath: { $first: "$destPath" }
+                filePath: { $first: "$destPath" },
+                // Just grab the first quality found in the group for the main show card
+                quality: { $first: "$quality" },
+                srcPath: { $first: "$srcPath" }
             }},
             { $sort: { title: 1 } }
         ]).toArray();
-        res.json(shows.map(s => ({
-            id: s._id, title: s.title, year: s.year,
-            posterPath: s.posterPath, overview: s.overview, filePath: s.filePath
-        })));
+
+        res.json(shows.map(s => {
+            const quality = s.quality || parseMediaMetaFromFilename(path.basename(s.srcPath)).quality;
+            return {
+                id: s._id, title: s.title, year: s.year,
+                posterPath: s.posterPath, overview: s.overview, filePath: s.filePath,
+                quality
+            };
+        }));
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
