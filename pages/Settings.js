@@ -6,9 +6,8 @@ import Input from '../components/Input.js';
 import Button from '../components/Button.js';
 import Toggle from '../components/Toggle.js';
 import FolderPicker from '../components/FolderPicker.js';
-import { PlusIcon, TrashIcon, CheckCircleIcon, ExclamationIcon } from '../lib/icons.js';
+import { CheckCircleIcon, ExclamationIcon, FileIcon } from '../lib/icons.js';
 import { useToast } from '../hooks/useToast.js';
-import { testTmdbApiKey } from '../lib/tmdb.js';
 
 const Settings = ({ onMenuClick }) => {
     const { addToast } = useToast();
@@ -17,14 +16,11 @@ const Settings = ({ onMenuClick }) => {
     const [tmdbApiKey, setTmdbApiKey] = useState('');
     const [tmdbLanguage, setTmdbLanguage] = useState('en-US');
     
-    // Configurable paths
-    const [sourceFolders, setSourceFolders] = useState([]);
-    const [movieRoots, setMovieRoots] = useState([]);
-    const [tvRoots, setTvRoots] = useState([]);
+    // Single Root Configuration
+    const [libraryRoot, setLibraryRoot] = useState('');
     
     const [isCopyMode, setIsCopyMode] = useState(false);
     const [pickerOpen, setPickerOpen] = useState(false);
-    const [pickerType, setPickerType] = useState('source'); 
     const [isSaving, setIsSaving] = useState(false);
     const [isResetting, setIsResetting] = useState(false);
 
@@ -37,9 +33,7 @@ const Settings = ({ onMenuClick }) => {
                     if (data.mongoUri) setMongoUri(data.mongoUri);
                     if (data.dbName) setDbName(data.dbName);
                     if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
-                    if (data.sourceFolders) setSourceFolders(data.sourceFolders);
-                    if (data.movieRoots) setMovieRoots(data.movieRoots);
-                    if (data.tvRoots) setTvRoots(data.tvRoots);
+                    if (data.libraryRoot) setLibraryRoot(data.libraryRoot);
                     if (data.isCopyMode !== undefined) setIsCopyMode(data.isCopyMode);
                 }
             } catch (e) {}
@@ -55,7 +49,7 @@ const Settings = ({ onMenuClick }) => {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ 
                     mongoUri, dbName, tmdbApiKey, tmdbLanguage, 
-                    sourceFolders, movieRoots, tvRoots, isCopyMode 
+                    libraryRoot, isCopyMode 
                 })
             });
             if (res.ok) {
@@ -67,7 +61,7 @@ const Settings = ({ onMenuClick }) => {
     };
 
     const handleResetLibrary = async () => {
-        if (!confirm("Are you sure? This will clear all scanned data for the current library configuration. Files on disk will NOT be touched.")) return;
+        if (!confirm("Are you sure? This will clear all scanned data. Files on disk will NOT be touched.")) return;
         
         setIsResetting(true);
         try {
@@ -81,11 +75,8 @@ const Settings = ({ onMenuClick }) => {
         setIsResetting(false);
     };
 
-    const openPicker = (type) => { setPickerType(type); setPickerOpen(true); };
     const onPick = (path) => {
-        if (pickerType === 'source' && !sourceFolders.includes(path)) setSourceFolders([...sourceFolders, path]);
-        if (pickerType === 'movie' && !movieRoots.includes(path)) setMovieRoots([...movieRoots, path]);
-        if (pickerType === 'tv' && !tvRoots.includes(path)) setTvRoots([...tvRoots, path]);
+        setLibraryRoot(path);
         setPickerOpen(false);
     };
 
@@ -102,62 +93,21 @@ const Settings = ({ onMenuClick }) => {
                 </div>
 
                 <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-                    <h2 className="text-xl font-bold mb-4 text-white">Source Folders (Incoming)</h2>
+                    <h2 className="text-xl font-bold mb-4 text-white">Library Root</h2>
                     <p className="text-sm text-gray-400 mb-4">
-                        The scanner will <strong>ONLY</strong> look in these folders for new files. 
-                        It will <strong>SKIP</strong> any files that are already inside your Destination folders.
+                        Select the <strong>Single Root Folder</strong> where your media is stored. 
+                        The organizer will scan this folder and create "Movies" and "TV Shows" subfolders inside it.
                     </p>
-                    <div className="space-y-2">
-                        <div className="flex justify-between mb-2">
-                            <span className="text-gray-400 uppercase text-xs font-bold">Watch Folders</span>
-                            <${Button} onClick=${()=>openPicker('source')} variant="secondary" className="!py-1 !px-2 text-xs">Add</${Button}>
-                        </div>
-                        ${sourceFolders.map((p,i) => html`
-                            <div key=${i} className="flex justify-between bg-gray-900/50 p-2 rounded mb-1 border border-gray-700/50">
-                                <span className="font-mono text-sm">${p}</span>
-                                <button onClick=${()=>setSourceFolders(sourceFolders.filter((_,x)=>x!==i))} class="text-red-400"><${TrashIcon}/></button>
-                            </div>
-                        `)}
-                        ${sourceFolders.length === 0 && html`<div className="text-gray-500 text-sm italic p-2 bg-red-900/10 rounded border border-red-900/20">No source folders configured. Scanner will find nothing.</div>`}
+                    <div className="flex gap-2 items-end">
+                        <${Input} label="Root Path" value=${libraryRoot} onChange=${e=>setLibraryRoot(e.target.value)} placeholder="/path/to/media" />
+                        <${Button} onClick=${()=>setPickerOpen(true)} variant="secondary" className="mb-[1px]">Select</${Button}>
                     </div>
+                    ${!libraryRoot && html`<div className="text-red-400 text-sm mt-2 font-bold">Please select a root folder to enable scanning.</div>`}
                 </div>
 
                 <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-                    <h2 className="text-xl font-bold mb-4 text-white">Destination Roots (Library)</h2>
-                    <p className="text-sm text-gray-400 mb-4">
-                        Organized files will be moved here. These folders are excluded from scans.
-                    </p>
-                    <div className="space-y-6">
-                        <div>
-                            <div className="flex justify-between mb-2">
-                                <span className="text-gray-400 uppercase text-xs font-bold">Movies Destination</span>
-                                <${Button} onClick=${()=>openPicker('movie')} variant="secondary" className="!py-1 !px-2 text-xs">Add</${Button}>
-                            </div>
-                            ${movieRoots.map((p,i) => html`
-                                <div key=${i} className="flex justify-between bg-gray-900/50 p-2 rounded mb-1">
-                                    <span className="font-mono text-sm">${p}</span>
-                                    <button onClick=${()=>setMovieRoots(movieRoots.filter((_,x)=>x!==i))} class="text-red-400"><${TrashIcon}/></button>
-                                </div>
-                            `)}
-                            ${movieRoots.length === 0 && html`<div className="text-gray-500 text-sm italic p-2">No folders configured.</div>`}
-                        </div>
-                        <div>
-                            <div className="flex justify-between mb-2">
-                                <span className="text-gray-400 uppercase text-xs font-bold">TV Shows Destination</span>
-                                <${Button} onClick=${()=>openPicker('tv')} variant="secondary" className="!py-1 !px-2 text-xs">Add</${Button}>
-                            </div>
-                            ${tvRoots.map((p,i) => html`
-                                <div key=${i} className="flex justify-between bg-gray-900/50 p-2 rounded mb-1">
-                                    <span className="font-mono text-sm">${p}</span>
-                                    <button onClick=${()=>setTvRoots(tvRoots.filter((_,x)=>x!==i))} class="text-red-400"><${TrashIcon}/></button>
-                                </div>
-                            `)}
-                            ${tvRoots.length === 0 && html`<div className="text-gray-500 text-sm italic p-2">No folders configured.</div>`}
-                        </div>
-                    </div>
-                    <div className="pt-6 mt-6 border-t border-gray-700 space-y-4">
-                        <${Toggle} label="Copy files instead of Move" enabled=${isCopyMode} setEnabled=${setIsCopyMode} />
-                    </div>
+                    <h2 className="text-xl font-bold mb-4 text-white">Options</h2>
+                    <${Toggle} label="Copy files instead of Move (Safer)" enabled=${isCopyMode} setEnabled=${setIsCopyMode} />
                 </div>
 
                 <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
@@ -168,7 +118,7 @@ const Settings = ({ onMenuClick }) => {
                      <${Button} onClick=${handleResetLibrary} isLoading=${isResetting} variant="danger">Reset Library Data</${Button}>
                 </div>
             </div>
-            <${FolderPicker} isOpen=${pickerOpen} onClose=${()=>setPickerOpen(false)} onSelect=${onPick} />
+            <${FolderPicker} isOpen=${pickerOpen} onClose=${()=>setPickerOpen(false)} onSelect=${onPick} title="Select Library Root" />
         </div>
     `;
 };

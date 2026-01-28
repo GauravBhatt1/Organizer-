@@ -7,7 +7,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import cors from 'cors';
 import { runScanJob } from './lib/scanner.js';
 import { organizeMediaItem } from './lib/organizer.js';
-import { isValidDataPath, DATA_ROOT } from './lib/pathUtils.js';
+import { isValidDataPath } from './lib/pathUtils.js';
 import { randomUUID } from 'crypto';
 import { parseMediaMetaFromFilename } from './lib/metadataParser.js';
 
@@ -166,26 +166,24 @@ app.post('/api/settings', async (req, res) => {
     try {
         const { mongoUri, dbName, ...appSettings } = req.body;
         
-        // Strict Path Validation
-        const paths = [...(appSettings.sourceFolders || []), ...(appSettings.movieRoots || []), ...(appSettings.tvRoots || [])];
-        for (const p of paths) {
-            if (!isValidDataPath(p)) return res.status(400).json({ message: `Path must start with ${DATA_ROOT}` });
+        // Single Root Validation
+        const root = appSettings.libraryRoot;
+        if (root && !isValidDataPath(root)) {
+             return res.status(400).json({ message: `Path invalid` });
         }
 
-        // Logic 1: Determine if Library Roots changed
         let libraryId = null;
         if (db) {
             const currentSettings = await db.collection('settings').findOne({ id: 'global' });
             if (currentSettings) {
-                const oldRoots = JSON.stringify([...(currentSettings.movieRoots||[]), ...(currentSettings.tvRoots||[])].sort());
-                const newRoots = JSON.stringify([...(appSettings.movieRoots||[]), ...(appSettings.tvRoots||[])].sort());
+                const oldRoot = currentSettings.libraryRoot || '';
+                const newRoot = root || '';
                 libraryId = currentSettings.libraryId;
 
-                // If DESTINATION roots changed, NEW LIBRARY ID (Resets dashboard counts)
-                // Changing source folders does NOT reset library ID
-                if (oldRoots !== newRoots) {
+                // New library ID if root changes
+                if (oldRoot !== newRoot) {
                     libraryId = randomUUID();
-                    console.log("Library roots changed. Generated new libraryId:", libraryId);
+                    console.log("Library root changed. Generated new libraryId:", libraryId);
                 }
             } else {
                 libraryId = randomUUID(); // First time setup
@@ -263,12 +261,13 @@ app.post('/api/scan/start', async (req, res) => {
     try {
         const settings = await db.collection('settings').findOne({ id: 'global' });
         if (!settings?.libraryId) return res.status(400).json({ message: "Settings not initialized" });
+        if (!settings?.libraryRoot) return res.status(400).json({ message: "No Library Root configured" });
 
         const active = await db.collection('jobs').findOne({ status: 'running' });
         if (active) return res.status(409).json({ message: 'Scan running' });
 
         const job = {
-            libraryId: settings.libraryId, // Scoped to current library config
+            libraryId: settings.libraryId, 
             status: 'running', 
             startedAt: new Date(),
             totalFiles: 0, processedFiles: 0,
@@ -277,7 +276,6 @@ app.post('/api/scan/start', async (req, res) => {
         };
         const r = await db.collection('jobs').insertOne(job);
         
-        // Scan is always read-only now
         runScanJob(db, r.insertedId).catch(e => {
             console.error("Critical Scanner Crash:", e);
             db.collection('jobs').updateOne({ _id: r.insertedId }, { 
@@ -294,7 +292,6 @@ app.post('/api/scan/start', async (req, res) => {
 });
 
 app.get('/api/scan/current', async (req, res) => {
-    // Deprecated in favor of dashboard logic, but kept for backward compat just in case
     if (!db) return res.json(null);
     const settings = await db.collection('settings').findOne({ id: 'global' });
     if (!settings?.libraryId) return res.json(null);
@@ -326,8 +323,6 @@ app.get('/api/dashboard', async (req, res) => {
             db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, status: 'uncategorized' })
         ]);
 
-        // Get Latest Scan Job Object (Running or Completed)
-        // Prefer running job to show live progress, otherwise fallback to ctx.scanId (latest completed)
         let lastScan = await db.collection('jobs').findOne({ libraryId: ctx.libraryId, status: 'running' });
         
         if (!lastScan && ctx.scanId) {
@@ -352,7 +347,6 @@ app.get('/api/uncategorized', async (req, res) => {
         .limit(100)
         .toArray();
     
-    // Compute quality from filename if missing in DB
     res.json(items.map(i => {
         const quality = i.quality || parseMediaMetaFromFilename(path.basename(i.srcPath)).quality;
         return { 
@@ -365,9 +359,9 @@ app.get('/api/uncategorized', async (req, res) => {
 });
 
 app.get('/api/fs/list', (req, res) => {
-    const browsePath = req.query.path || DATA_ROOT;
-    if (!isValidDataPath(browsePath)) return res.status(400).json({ message: `Access restricted to ${DATA_ROOT}` });
-
+    // We allow ANY path now, default to /
+    const browsePath = req.query.path || '/';
+    
     try {
         if (!fs.existsSync(browsePath)) return res.status(404).json({ message: 'Path not found' });
         const items = fs.readdirSync(browsePath, { withFileTypes: true })
@@ -380,7 +374,7 @@ app.get('/api/fs/list', (req, res) => {
 
 app.get('/api/fs/validate', (req, res) => {
     const p = req.query.path;
-    if (!isValidDataPath(p)) return res.json({ valid: false });
+    if (!p) return res.json({ valid: false });
     try {
         if (!fs.existsSync(p)) return res.json({ valid: false });
         fs.accessSync(p, fs.constants.R_OK);
@@ -398,7 +392,6 @@ app.get('/api/movies', async (req, res) => {
             .sort({ 'tmdb.title': 1 }).limit(100).toArray();
         
         res.json(movies.map(m => {
-            // Compute quality fallback
             const quality = m.quality || parseMediaMetaFromFilename(path.basename(m.srcPath)).quality;
             return {
                 id: m._id, title: m.tmdb?.title, year: m.tmdb?.year,
@@ -423,7 +416,6 @@ app.get('/api/tvshows', async (req, res) => {
                 posterPath: { $first: "$tmdb.posterPath" },
                 overview: { $first: "$tmdb.overview" },
                 filePath: { $first: "$destPath" },
-                // Just grab the first quality found in the group for the main show card
                 quality: { $first: "$quality" },
                 srcPath: { $first: "$srcPath" }
             }},
@@ -446,5 +438,4 @@ app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on ${PORT}`);
-    console.log(`DATA ROOT: ${DATA_ROOT}`);
 });
