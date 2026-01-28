@@ -10,7 +10,7 @@ import { SearchIcon, FileIcon, CheckCircleIcon } from '../lib/icons.js';
 import { useToast } from '../hooks/useToast.js';
 import { searchMovies } from '../lib/tmdb.js';
 
-const Uncategorized = ({ onMenuClick }) => {
+const Uncategorized = ({ onMenuClick, onStatsUpdate }) => {
     const [uncategorizedItems, setUncategorizedItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedItem, setSelectedItem] = useState(null);
@@ -84,6 +84,12 @@ const Uncategorized = ({ onMenuClick }) => {
             if (res.ok) {
                 addToast(`Successfully moved to: ${data.newPath}`, 'success');
                 setUncategorizedItems(prev => prev.filter(item => item.id !== selectedItem.id));
+                
+                // UPDATE GLOBAL STATS IMMEDIATELY
+                if (data.stats && onStatsUpdate) {
+                    onStatsUpdate(data.stats);
+                }
+                
                 closeSearchModal();
             } else {
                 throw new Error(data.message || 'Unknown error');

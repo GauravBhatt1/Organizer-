@@ -167,7 +167,7 @@ app.post('/api/settings', async (req, res) => {
         const { mongoUri, dbName, ...appSettings } = req.body;
         
         // Strict Path Validation
-        const paths = [...(appSettings.movieRoots || []), ...(appSettings.tvRoots || [])];
+        const paths = [...(appSettings.sourceFolders || []), ...(appSettings.movieRoots || []), ...(appSettings.tvRoots || [])];
         for (const p of paths) {
             if (!isValidDataPath(p)) return res.status(400).json({ message: `Path must start with ${DATA_ROOT}` });
         }
@@ -178,10 +178,11 @@ app.post('/api/settings', async (req, res) => {
             const currentSettings = await db.collection('settings').findOne({ id: 'global' });
             if (currentSettings) {
                 const oldRoots = JSON.stringify([...(currentSettings.movieRoots||[]), ...(currentSettings.tvRoots||[])].sort());
-                const newRoots = JSON.stringify(paths.sort());
+                const newRoots = JSON.stringify([...(appSettings.movieRoots||[]), ...(appSettings.tvRoots||[])].sort());
                 libraryId = currentSettings.libraryId;
 
-                // If roots changed, NEW LIBRARY ID
+                // If DESTINATION roots changed, NEW LIBRARY ID (Resets dashboard counts)
+                // Changing source folders does NOT reset library ID
                 if (oldRoots !== newRoots) {
                     libraryId = randomUUID();
                     console.log("Library roots changed. Generated new libraryId:", libraryId);
@@ -236,7 +237,21 @@ app.post('/api/organize', async (req, res) => {
     if (!db) return res.status(503).json({ message: 'DB Disconnected' });
     try {
         const result = await organizeMediaItem(db, req.body);
-        res.json(result);
+        
+        // RE-FETCH STATS IMMEDIATELY to allow atomic UI update
+        const ctx = await getActiveContext();
+        let stats = { movies: 0, tvShows: 0, uncategorized: 0 };
+        
+        if (ctx && ctx.scanId) {
+            const [movies, tv, uncategorized] = await Promise.all([
+                db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'movie', status: 'organized' }),
+                db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'tv', status: 'organized' }),
+                db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, status: 'uncategorized' })
+            ]);
+            stats = { movies, tvShows: tv, uncategorized };
+        }
+
+        res.json({ ...result, stats });
     } catch (e) {
         console.error("Organize Error:", e);
         res.status(500).json({ message: e.message });
@@ -279,9 +294,8 @@ app.post('/api/scan/start', async (req, res) => {
 });
 
 app.get('/api/scan/current', async (req, res) => {
+    // Deprecated in favor of dashboard logic, but kept for backward compat just in case
     if (!db) return res.json(null);
-    // Find latest job regardless of libraryId to show status, 
-    // OR restrict to current library. Restricting is safer for "current view" logic.
     const settings = await db.collection('settings').findOne({ id: 'global' });
     if (!settings?.libraryId) return res.json(null);
 
@@ -296,15 +310,36 @@ app.get('/api/dashboard', async (req, res) => {
     try {
         const ctx = await getActiveContext();
         if (!ctx || !ctx.scanId) {
-            return res.json({ movies: 0, tvShows: 0, uncategorized: 0, message: "No completed scans for current library." });
+            return res.json({ 
+                movies: 0, 
+                tvShows: 0, 
+                uncategorized: 0, 
+                message: "No completed scans for current library.",
+                lastScan: null 
+            });
         }
 
+        // Global Totals (Scoped to latest scan ID to prevent mixing old data)
         const [movies, tv, uncategorized] = await Promise.all([
             db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'movie', status: 'organized' }),
             db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'tv', status: 'organized' }),
             db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, status: 'uncategorized' })
         ]);
-        res.json({ movies, tvShows: tv, uncategorized });
+
+        // Get Latest Scan Job Object (Running or Completed)
+        // Prefer running job to show live progress, otherwise fallback to ctx.scanId (latest completed)
+        let lastScan = await db.collection('jobs').findOne({ libraryId: ctx.libraryId, status: 'running' });
+        
+        if (!lastScan && ctx.scanId) {
+            lastScan = await db.collection('jobs').findOne({ _id: ctx.scanId });
+        }
+
+        res.json({ 
+            movies, 
+            tvShows: tv, 
+            uncategorized,
+            lastScan: lastScan || null
+        });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

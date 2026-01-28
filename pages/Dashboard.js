@@ -14,41 +14,38 @@ const StatCard = React.memo(({ title, value }) => html`
 `);
 
 const Dashboard = ({ onMenuClick }) => {
-    const [stats, setStats] = useState({ movies: 0, tvShows: 0, uncategorized: 0 });
-    const [currentJob, setCurrentJob] = useState(null);
+    const [dashboardData, setDashboardData] = useState({
+        movies: 0,
+        tvShows: 0,
+        uncategorized: 0,
+        lastScan: null
+    });
+    
     const { addToast } = useToast();
     const pollInterval = useRef(null);
 
-    const fetchStats = async () => {
+    const fetchData = async () => {
         try {
             const res = await fetch('/api/dashboard');
             const data = await res.json();
-            setStats(data);
-        } catch (e) { console.error(e); }
-    };
-
-    const fetchCurrentJob = async () => {
-        try {
-            const res = await fetch('/api/scan/current');
-            const job = await res.json();
             
-            if (job) {
-                setCurrentJob(job);
-                if (job.status === 'running') {
+            // Only update if data is valid
+            if (data) {
+                setDashboardData(data);
+                
+                // Control polling based on scan status
+                if (data.lastScan && data.lastScan.status === 'running') {
                     if (!pollInterval.current) startPolling();
                 } else {
                     stopPolling();
                 }
-            } else {
-                setCurrentJob(null);
-                stopPolling();
             }
         } catch (e) { console.error(e); }
     };
 
     const startPolling = () => {
         if (pollInterval.current) return;
-        pollInterval.current = setInterval(fetchCurrentJob, 2000);
+        pollInterval.current = setInterval(fetchData, 2000);
     };
 
     const stopPolling = () => {
@@ -56,17 +53,15 @@ const Dashboard = ({ onMenuClick }) => {
             clearInterval(pollInterval.current);
             pollInterval.current = null;
         }
-        fetchStats(); 
     };
 
     useEffect(() => {
-        fetchStats();
-        fetchCurrentJob();
+        fetchData();
         return () => stopPolling();
     }, []);
 
     const startScan = useCallback(async () => {
-        if (currentJob && currentJob.status === 'running') {
+        if (dashboardData.lastScan && dashboardData.lastScan.status === 'running') {
             return addToast('Scan already running', 'info');
         }
 
@@ -75,49 +70,51 @@ const Dashboard = ({ onMenuClick }) => {
             const res = await fetch('/api/scan/start', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({}) // No params needed, always read-only
+                body: JSON.stringify({})
             });
             const data = await res.json();
             
             if (res.ok) {
                 addToast('Scan started!', 'success');
-                fetchCurrentJob(); 
+                // Immediately fetch to show running state
+                fetchData(); 
             } else {
                 addToast(`Failed: ${data.message}`, 'error');
             }
         } catch (e) {
             addToast(`Error: ${e.message}`, 'error');
         }
-    }, [currentJob, addToast]);
+    }, [dashboardData.lastScan, addToast]);
 
-    const progress = currentJob && currentJob.totalFiles > 0 
-        ? Math.round((currentJob.processedFiles / currentJob.totalFiles) * 100) 
+    const lastScan = dashboardData.lastScan;
+    const progress = lastScan && lastScan.totalFiles > 0 
+        ? Math.round((lastScan.processedFiles / lastScan.totalFiles) * 100) 
         : 0;
 
     return html`
         <div className="h-full flex flex-col">
             <${Header} title="Dashboard" onMenuClick=${onMenuClick} 
                 actionButton=${html`
-                    <${Button} onClick=${startScan} icon=${html`<${PlayIcon} />`} disabled=${currentJob?.status === 'running'}>
-                        ${currentJob?.status === 'running' ? 'Scanning...' : 'Scan Library'}
+                    <${Button} onClick=${startScan} icon=${html`<${PlayIcon} />`} disabled=${lastScan?.status === 'running'}>
+                        ${lastScan?.status === 'running' ? 'Scanning...' : 'Scan Library'}
                     </${Button}>
                 `} 
             />
             
             <div className="p-6 space-y-8 overflow-y-auto">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <${StatCard} title="Organized Movies" value=${stats.movies} />
-                    <${StatCard} title="Organized TV Shows" value=${stats.tvShows} />
-                    <${StatCard} title="Uncategorized Items" value=${stats.uncategorized} />
+                    <${StatCard} title="Organized Movies" value=${dashboardData.movies} />
+                    <${StatCard} title="Organized TV Shows" value=${dashboardData.tvShows} />
+                    <${StatCard} title="Uncategorized Items" value=${dashboardData.uncategorized} />
                 </div>
 
-                ${currentJob && html`
+                ${lastScan && html`
                     <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold text-white">
-                                ${currentJob.status === 'running' ? 'Scan in Progress' : 'Last Scan Result'}
+                                ${lastScan.status === 'running' ? 'Scan in Progress' : 'Last Scan Result'}
                             </h2>
-                            <span className="text-xs font-mono text-gray-500">${new Date(currentJob.startedAt).toLocaleString()}</span>
+                            <span className="text-xs font-mono text-gray-500">${new Date(lastScan.startedAt).toLocaleString()}</span>
                         </div>
 
                         <div className="space-y-4">
@@ -125,12 +122,12 @@ const Dashboard = ({ onMenuClick }) => {
                                 <div className="flex items-center gap-2">
                                     <span className="font-medium text-gray-300">Status:</span> 
                                     <span className=${`capitalize font-bold px-2 py-0.5 rounded text-sm ${
-                                        currentJob.status === 'running' ? 'bg-blue-500/20 text-blue-400' :
-                                        currentJob.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                                        lastScan.status === 'running' ? 'bg-blue-500/20 text-blue-400' :
+                                        lastScan.status === 'completed' ? 'bg-green-500/20 text-green-400' :
                                         'bg-red-500/20 text-red-400'
-                                    }`}>${currentJob.status}</span>
+                                    }`}>${lastScan.status}</span>
                                 </div>
-                                <span className="text-gray-400 text-sm font-mono">${currentJob.processedFiles} / ${currentJob.totalFiles} Files</span>
+                                <span className="text-gray-400 text-sm font-mono">${lastScan.processedFiles} / ${lastScan.totalFiles} Files</span>
                             </div>
                             
                             <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
@@ -138,7 +135,7 @@ const Dashboard = ({ onMenuClick }) => {
                                     className="bg-brand-purple h-4 transition-all duration-500 ease-out relative" 
                                     style=${{ width: `${progress}%` }}
                                 >
-                                    ${currentJob.status === 'running' && html`
+                                    ${lastScan.status === 'running' && html`
                                         <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
                                     `}
                                 </div>
@@ -147,19 +144,19 @@ const Dashboard = ({ onMenuClick }) => {
                             <div className="grid grid-cols-4 gap-4 pt-2 text-center text-sm">
                                 <div className="bg-gray-900/50 p-2 rounded">
                                     <div className="text-gray-500 text-xs uppercase">Movies</div>
-                                    <div className="font-bold text-green-400">${currentJob.stats?.movies || 0}</div>
+                                    <div className="font-bold text-green-400">${lastScan.stats?.movies || 0}</div>
                                 </div>
                                 <div className="bg-gray-900/50 p-2 rounded">
                                     <div className="text-gray-500 text-xs uppercase">TV Shows</div>
-                                    <div className="font-bold text-blue-400">${currentJob.stats?.tv || 0}</div>
+                                    <div className="font-bold text-blue-400">${lastScan.stats?.tv || 0}</div>
                                 </div>
                                 <div className="bg-gray-900/50 p-2 rounded">
                                     <div className="text-gray-500 text-xs uppercase">Uncategorized</div>
-                                    <div className="font-bold text-yellow-400">${currentJob.stats?.uncategorized || 0}</div>
+                                    <div className="font-bold text-yellow-400">${lastScan.stats?.uncategorized || 0}</div>
                                 </div>
                                 <div className="bg-gray-900/50 p-2 rounded">
                                     <div className="text-gray-500 text-xs uppercase">Errors</div>
-                                    <div className="font-bold text-red-400">${currentJob.stats?.errors || 0}</div>
+                                    <div className="font-bold text-red-400">${lastScan.stats?.errors || 0}</div>
                                 </div>
                             </div>
                         </div>

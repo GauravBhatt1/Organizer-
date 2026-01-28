@@ -17,13 +17,14 @@ const Settings = ({ onMenuClick }) => {
     const [tmdbApiKey, setTmdbApiKey] = useState('');
     const [tmdbLanguage, setTmdbLanguage] = useState('en-US');
     
-    // Start with empty lists to avoid showing "fake" folders
+    // Configurable paths
+    const [sourceFolders, setSourceFolders] = useState([]);
     const [movieRoots, setMovieRoots] = useState([]);
     const [tvRoots, setTvRoots] = useState([]);
     
     const [isCopyMode, setIsCopyMode] = useState(false);
     const [pickerOpen, setPickerOpen] = useState(false);
-    const [pickerType, setPickerType] = useState('movie'); 
+    const [pickerType, setPickerType] = useState('source'); 
     const [isSaving, setIsSaving] = useState(false);
     const [isResetting, setIsResetting] = useState(false);
 
@@ -36,6 +37,7 @@ const Settings = ({ onMenuClick }) => {
                     if (data.mongoUri) setMongoUri(data.mongoUri);
                     if (data.dbName) setDbName(data.dbName);
                     if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
+                    if (data.sourceFolders) setSourceFolders(data.sourceFolders);
                     if (data.movieRoots) setMovieRoots(data.movieRoots);
                     if (data.tvRoots) setTvRoots(data.tvRoots);
                     if (data.isCopyMode !== undefined) setIsCopyMode(data.isCopyMode);
@@ -51,7 +53,10 @@ const Settings = ({ onMenuClick }) => {
             const res = await fetch('/api/settings', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ mongoUri, dbName, tmdbApiKey, tmdbLanguage, movieRoots, tvRoots, isCopyMode })
+                body: JSON.stringify({ 
+                    mongoUri, dbName, tmdbApiKey, tmdbLanguage, 
+                    sourceFolders, movieRoots, tvRoots, isCopyMode 
+                })
             });
             if (res.ok) {
                 localStorage.setItem('tmdb_api_key', tmdbApiKey);
@@ -78,6 +83,7 @@ const Settings = ({ onMenuClick }) => {
 
     const openPicker = (type) => { setPickerType(type); setPickerOpen(true); };
     const onPick = (path) => {
+        if (pickerType === 'source' && !sourceFolders.includes(path)) setSourceFolders([...sourceFolders, path]);
         if (pickerType === 'movie' && !movieRoots.includes(path)) setMovieRoots([...movieRoots, path]);
         if (pickerType === 'tv' && !tvRoots.includes(path)) setTvRoots([...tvRoots, path]);
         setPickerOpen(false);
@@ -96,9 +102,30 @@ const Settings = ({ onMenuClick }) => {
                 </div>
 
                 <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-                    <h2 className="text-xl font-bold mb-4 text-white">Library Folders</h2>
+                    <h2 className="text-xl font-bold mb-4 text-white">Source Folders (Incoming)</h2>
                     <p className="text-sm text-gray-400 mb-4">
-                        Select folders within <code>/data</code>. These are the locations where your media will be organized.
+                        The scanner will <strong>ONLY</strong> look in these folders for new files. 
+                        It will <strong>SKIP</strong> any files that are already inside your Destination folders.
+                    </p>
+                    <div className="space-y-2">
+                        <div className="flex justify-between mb-2">
+                            <span className="text-gray-400 uppercase text-xs font-bold">Watch Folders</span>
+                            <${Button} onClick=${()=>openPicker('source')} variant="secondary" className="!py-1 !px-2 text-xs">Add</${Button}>
+                        </div>
+                        ${sourceFolders.map((p,i) => html`
+                            <div key=${i} className="flex justify-between bg-gray-900/50 p-2 rounded mb-1 border border-gray-700/50">
+                                <span className="font-mono text-sm">${p}</span>
+                                <button onClick=${()=>setSourceFolders(sourceFolders.filter((_,x)=>x!==i))} class="text-red-400"><${TrashIcon}/></button>
+                            </div>
+                        `)}
+                        ${sourceFolders.length === 0 && html`<div className="text-gray-500 text-sm italic p-2 bg-red-900/10 rounded border border-red-900/20">No source folders configured. Scanner will find nothing.</div>`}
+                    </div>
+                </div>
+
+                <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+                    <h2 className="text-xl font-bold mb-4 text-white">Destination Roots (Library)</h2>
+                    <p className="text-sm text-gray-400 mb-4">
+                        Organized files will be moved here. These folders are excluded from scans.
                     </p>
                     <div className="space-y-6">
                         <div>

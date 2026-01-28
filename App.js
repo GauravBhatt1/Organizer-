@@ -41,10 +41,18 @@ const App = () => {
     setIsSidebarOpen(isOpen => !isOpen);
   }, []);
 
+  // New handler to update stats immediately from any child component
+  const handleStatsUpdate = useCallback((newStats) => {
+    if (newStats && typeof newStats.uncategorized === 'number') {
+        setUncategorizedCount(newStats.uncategorized);
+    }
+  }, []);
+
   const pageComponent = useMemo(() => {
     const pageProps = { 
         onMenuClick: toggleSidebar,
-        onSettingsClick: () => handleSetCurrentPage('Settings')
+        onSettingsClick: () => handleSetCurrentPage('Settings'),
+        onStatsUpdate: handleStatsUpdate // Pass down to pages
     };
 
     switch (currentPage) {
@@ -61,7 +69,7 @@ const App = () => {
       default:
         return html`<${Dashboard} ...${pageProps} />`;
     }
-  }, [currentPage, toggleSidebar]);
+  }, [currentPage, toggleSidebar, handleStatsUpdate]);
 
   return html`
     <${ToastProvider}>
