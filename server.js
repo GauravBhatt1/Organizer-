@@ -78,7 +78,14 @@ async function getActiveContext() {
     const settings = await db.collection('settings').findOne({ id: 'global' });
     if (!settings || !settings.libraryId) return null;
 
-    // Find latest COMPLETED scan for this library
+    // Find latest scan (Running OR Completed) to show live data
+    // Prefer running scan to show progress
+    const runningScan = await db.collection('jobs').findOne({ libraryId: settings.libraryId, status: 'running' });
+    if (runningScan) {
+        return { libraryId: settings.libraryId, scanId: runningScan._id };
+    }
+
+    // Fallback to last completed
     const lastScan = await db.collection('jobs')
         .find({ libraryId: settings.libraryId, status: 'completed' })
         .sort({ finishedAt: -1 })
@@ -263,8 +270,28 @@ app.post('/api/scan/start', async (req, res) => {
         if (!settings?.libraryId) return res.status(400).json({ message: "Settings not initialized" });
         if (!settings?.libraryRoot) return res.status(400).json({ message: "No Library Root configured" });
 
-        const active = await db.collection('jobs').findOne({ status: 'running' });
-        if (active) return res.status(409).json({ message: 'Scan running' });
+        // Check for existing running job
+        const active = await db.collection('jobs').findOne({ 
+            libraryId: settings.libraryId,
+            status: 'running' 
+        });
+
+        if (active) {
+            // Auto-reset stuck jobs older than 5 minutes
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+            if (active.startedAt < fiveMinutesAgo) {
+                console.warn(`Resetting stuck job ${active._id}`);
+                await db.collection('jobs').updateOne({ _id: active._id }, {
+                    $set: { 
+                        status: 'failed', 
+                        finishedAt: new Date(), 
+                        errors: ['System: Auto-terminated stuck job (timeout)']
+                    }
+                });
+            } else {
+                return res.status(409).json({ message: 'Scan already running' });
+            }
+        }
 
         const job = {
             libraryId: settings.libraryId, 
@@ -276,16 +303,9 @@ app.post('/api/scan/start', async (req, res) => {
         };
         const r = await db.collection('jobs').insertOne(job);
         
-        runScanJob(db, r.insertedId).catch(e => {
-            console.error("Critical Scanner Crash:", e);
-            db.collection('jobs').updateOne({ _id: r.insertedId }, { 
-                $set: { 
-                    status: 'failed', 
-                    finishedAt: new Date(),
-                    errors: [{ path: 'System', error: e.message || 'Critical Crash' }]
-                } 
-            });
-        });
+        // Run scan in background, DO NOT await it here to avoid blocking response
+        // The runScanJob function must handle its own errors/cleanup
+        runScanJob(db, r.insertedId);
         
         res.json({ success: true, jobId: r.insertedId });
     } catch (e) { res.status(500).json({ message: e.message }); }
@@ -306,28 +326,28 @@ app.get('/api/scan/current', async (req, res) => {
 app.get('/api/dashboard', async (req, res) => {
     try {
         const ctx = await getActiveContext();
+        
+        // If no context, return empty
         if (!ctx || !ctx.scanId) {
             return res.json({ 
                 movies: 0, 
                 tvShows: 0, 
                 uncategorized: 0, 
-                message: "No completed scans for current library.",
+                message: "No scans found.",
                 lastScan: null 
             });
         }
 
-        // Global Totals (Scoped to latest scan ID to prevent mixing old data)
+        // Global Totals (Scoped to active scan ID)
+        // This allows seeing items fill up as the scan progresses if we use the running scanId
         const [movies, tv, uncategorized] = await Promise.all([
             db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'movie', status: 'organized' }),
             db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'tv', status: 'organized' }),
             db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, status: 'uncategorized' })
         ]);
 
-        let lastScan = await db.collection('jobs').findOne({ libraryId: ctx.libraryId, status: 'running' });
-        
-        if (!lastScan && ctx.scanId) {
-            lastScan = await db.collection('jobs').findOne({ _id: ctx.scanId });
-        }
+        // Fetch object for the active scan ID we are using
+        let lastScan = await db.collection('jobs').findOne({ _id: ctx.scanId });
 
         res.json({ 
             movies, 
