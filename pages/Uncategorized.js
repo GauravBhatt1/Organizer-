@@ -162,7 +162,7 @@ const Uncategorized = ({ onMenuClick }) => {
                             <div className="text-center text-gray-500 py-4">No results found</div>
                         `}
 
-                        ${!isOrganizing && searchResults.map(result => html`
+                        ${!isSearching && !isOrganizing && searchResults.map(result => html`
                             <div key=${result.id} className="flex items-center gap-4 bg-gray-700 p-3 rounded-lg hover:bg-gray-600 transition-colors">
                                 <img src="${result.posterPath ? `https://image.tmdb.org/t/p/w92${result.posterPath}` : 'https://placehold.co/92x138?text=No+Img'}" alt=${result.title} className="w-12 h-auto rounded shadow-sm object-cover"/>
                                 <div className="flex-1">

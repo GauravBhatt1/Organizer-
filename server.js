@@ -85,13 +85,10 @@ async function connectDB(uri) {
         }
 
         // Wipe Items with invalid paths (anything not starting with /data)
-        // This prevents the UI from trying to organize files that the container can't see.
         const invalidItems = await db.collection('items').countDocuments({ srcPath: { $not: { $regex: /^\/data/ } } });
         if (invalidItems > 0) {
-            console.log(`Found ${invalidItems} items with invalid paths (non-/data). Removing from DB to force rescan...`);
+            console.log(`Found ${invalidItems} items with invalid paths. Removing...`);
             await db.collection('items').deleteMany({ srcPath: { $not: { $regex: /^\/data/ } } });
-            // Also clear jobs to avoid confusion
-            await db.collection('jobs').deleteMany({});
         }
 
     } catch (err) {
@@ -211,7 +208,6 @@ app.post('/api/scan/start', async (req, res) => {
         const active = await db.collection('jobs').findOne({ status: 'running' });
         if (active) return res.status(409).json({ message: 'Scan running' });
 
-        const { dryRun, isCopyMode } = req.body;
         const job = {
             status: 'running', startedAt: new Date(),
             totalFiles: 0, processedFiles: 0,
@@ -220,7 +216,8 @@ app.post('/api/scan/start', async (req, res) => {
         };
         const r = await db.collection('jobs').insertOne(job);
         
-        runScanJob(db, r.insertedId, { dryRun, isCopyMode }).catch(e => {
+        // Scan is always read-only now
+        runScanJob(db, r.insertedId).catch(e => {
             console.error("Critical Scanner Crash:", e);
             db.collection('jobs').updateOne({ _id: r.insertedId }, { 
                 $set: { 

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { html } from 'htm/react';
 import Header from '../components/Header.js';
@@ -225,7 +226,7 @@ const Movies = ({ onMenuClick }) => {
                         <${PosterCard} key=${movie.id} item=${movie} onClick=${() => handleCardClick(movie)} />
                     `)}
                 </${PosterGrid}>
-                ${movies.length === 0 && !loading && html`<div className="text-center text-gray-500 pt-10">No organized movies found.</div>`}
+                ${movies.length === 0 && !loading && html`<div className="text-center text-gray-500 pt-10">No organized movies found. Scan your library.</div>`}
                 ${loading && html`<div className="flex justify-center pt-20"><${Spinner} size="lg"/></div>`}
             </div>
 

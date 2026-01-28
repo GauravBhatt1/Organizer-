@@ -1,8 +1,8 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { html } from 'htm/react';
 import Header from '../components/Header.js';
 import Button from '../components/Button.js';
-import Toggle from '../components/Toggle.js';
 import { PlayIcon, CheckCircleIcon, ExclamationIcon } from '../lib/icons.js';
 import { useToast } from '../hooks/useToast.js';
 
@@ -16,7 +16,6 @@ const StatCard = React.memo(({ title, value }) => html`
 const Dashboard = ({ onMenuClick }) => {
     const [stats, setStats] = useState({ movies: 0, tvShows: 0, uncategorized: 0 });
     const [currentJob, setCurrentJob] = useState(null);
-    const [isDryRun, setIsDryRun] = useState(true); 
     const { addToast } = useToast();
     const pollInterval = useRef(null);
 
@@ -57,7 +56,7 @@ const Dashboard = ({ onMenuClick }) => {
             clearInterval(pollInterval.current);
             pollInterval.current = null;
         }
-        fetchStats(); // Update stats when job finishes
+        fetchStats(); 
     };
 
     useEffect(() => {
@@ -72,11 +71,11 @@ const Dashboard = ({ onMenuClick }) => {
         }
 
         try {
-            addToast(`Starting ${isDryRun ? 'Dry Run' : 'Real'} Scan...`, 'info');
+            addToast(`Starting Library Scan...`, 'info');
             const res = await fetch('/api/scan/start', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ dryRun: isDryRun })
+                body: JSON.stringify({}) // No params needed, always read-only
             });
             const data = await res.json();
             
@@ -89,7 +88,7 @@ const Dashboard = ({ onMenuClick }) => {
         } catch (e) {
             addToast(`Error: ${e.message}`, 'error');
         }
-    }, [currentJob, isDryRun, addToast]);
+    }, [currentJob, addToast]);
 
     const progress = currentJob && currentJob.totalFiles > 0 
         ? Math.round((currentJob.processedFiles / currentJob.totalFiles) * 100) 
@@ -99,15 +98,9 @@ const Dashboard = ({ onMenuClick }) => {
         <div className="h-full flex flex-col">
             <${Header} title="Dashboard" onMenuClick=${onMenuClick} 
                 actionButton=${html`
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-1 border border-gray-700">
-                             <span className="text-xs text-gray-400 font-medium uppercase">Dry Run</span>
-                             <${Toggle} label="" enabled=${isDryRun} setEnabled=${setIsDryRun} />
-                        </div>
-                        <${Button} onClick=${startScan} icon=${html`<${PlayIcon} />`} disabled=${currentJob?.status === 'running'}>
-                            ${currentJob?.status === 'running' ? 'Scanning...' : 'Start Scan'}
-                        </${Button}>
-                    </div>
+                    <${Button} onClick=${startScan} icon=${html`<${PlayIcon} />`} disabled=${currentJob?.status === 'running'}>
+                        ${currentJob?.status === 'running' ? 'Scanning...' : 'Scan Library'}
+                    </${Button}>
                 `} 
             />
             
@@ -169,23 +162,12 @@ const Dashboard = ({ onMenuClick }) => {
                                     <div className="font-bold text-red-400">${currentJob.stats?.errors || 0}</div>
                                 </div>
                             </div>
-
-                            ${currentJob.errors && currentJob.errors.length > 0 && html`
-                                <div className="mt-4 bg-red-900/20 border border-red-900/50 p-3 rounded text-sm text-red-300 max-h-32 overflow-y-auto">
-                                    <p class="font-bold mb-1">Errors:</p>
-                                    <ul class="list-disc pl-4 space-y-1">
-                                        ${currentJob.errors.map(e => html`
-                                            <li>${e.path ? `${e.path}: ` : ''}${e.error}</li>
-                                        `)}
-                                    </ul>
-                                </div>
-                            `}
                         </div>
                     </div>
                 `}
                 
                 <div className="bg-gray-800 p-6 rounded-lg text-center text-gray-500 text-sm">
-                    <p>Logs are stored in MongoDB <code>jobs</code> collection.</p>
+                    <p>Scanned files are matched against TMDB. Use the <strong>Uncategorized</strong> tab to manually organize files.</p>
                 </div>
             </div>
         </div>

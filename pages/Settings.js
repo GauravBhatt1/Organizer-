@@ -17,11 +17,10 @@ const Settings = ({ onMenuClick }) => {
     const [tmdbApiKey, setTmdbApiKey] = useState('');
     const [tmdbLanguage, setTmdbLanguage] = useState('en-US');
     
-    // Strict defaults based on /data structure
-    const [movieRoots, setMovieRoots] = useState(['/data/movies']);
-    const [tvRoots, setTvRoots] = useState(['/data/tvshows']);
+    // Start with empty lists to avoid showing "fake" folders
+    const [movieRoots, setMovieRoots] = useState([]);
+    const [tvRoots, setTvRoots] = useState([]);
     
-    const [mountSafety, setMountSafety] = useState(true);
     const [isCopyMode, setIsCopyMode] = useState(false);
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerType, setPickerType] = useState('movie'); 
@@ -38,7 +37,6 @@ const Settings = ({ onMenuClick }) => {
                     if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
                     if (data.movieRoots) setMovieRoots(data.movieRoots);
                     if (data.tvRoots) setTvRoots(data.tvRoots);
-                    if (data.mountSafety !== undefined) setMountSafety(data.mountSafety);
                     if (data.isCopyMode !== undefined) setIsCopyMode(data.isCopyMode);
                 }
             } catch (e) {}
@@ -52,7 +50,7 @@ const Settings = ({ onMenuClick }) => {
             const res = await fetch('/api/settings', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ mongoUri, dbName, tmdbApiKey, tmdbLanguage, movieRoots, tvRoots, mountSafety, isCopyMode })
+                body: JSON.stringify({ mongoUri, dbName, tmdbApiKey, tmdbLanguage, movieRoots, tvRoots, isCopyMode })
             });
             if (res.ok) {
                 localStorage.setItem('tmdb_api_key', tmdbApiKey);
@@ -82,9 +80,9 @@ const Settings = ({ onMenuClick }) => {
                 </div>
 
                 <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-                    <h2 className="text-xl font-bold mb-4 text-white">Library Folders (Container Paths)</h2>
+                    <h2 className="text-xl font-bold mb-4 text-white">Library Folders</h2>
                     <p className="text-sm text-gray-400 mb-4">
-                        All paths must start with <code>/data</code>. This maps to your Host folder (<code>/home/ubuntu</code>).
+                        Select folders within <code>/data</code>. These are the locations where your media will be organized.
                     </p>
                     <div className="space-y-6">
                         <div>
@@ -98,6 +96,7 @@ const Settings = ({ onMenuClick }) => {
                                     <button onClick=${()=>setMovieRoots(movieRoots.filter((_,x)=>x!==i))} class="text-red-400"><${TrashIcon}/></button>
                                 </div>
                             `)}
+                            ${movieRoots.length === 0 && html`<div className="text-gray-500 text-sm italic p-2">No folders configured.</div>`}
                         </div>
                         <div>
                             <div className="flex justify-between mb-2">
@@ -110,11 +109,11 @@ const Settings = ({ onMenuClick }) => {
                                     <button onClick=${()=>setTvRoots(tvRoots.filter((_,x)=>x!==i))} class="text-red-400"><${TrashIcon}/></button>
                                 </div>
                             `)}
+                            ${tvRoots.length === 0 && html`<div className="text-gray-500 text-sm italic p-2">No folders configured.</div>`}
                         </div>
                     </div>
                     <div className="pt-6 mt-6 border-t border-gray-700 space-y-4">
-                        <${Toggle} label="Mount Safety (Check writable)" enabled=${mountSafety} setEnabled=${setMountSafety} />
-                        <${Toggle} label="Copy instead of Move" enabled=${isCopyMode} setEnabled=${setIsCopyMode} />
+                        <${Toggle} label="Copy files instead of Move" enabled=${isCopyMode} setEnabled=${setIsCopyMode} />
                     </div>
                 </div>
             </div>
