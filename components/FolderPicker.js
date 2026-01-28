@@ -33,19 +33,22 @@ const FolderPicker = ({ isOpen, onClose, onSelect, title = "Select Folder" }) =>
   }, [isOpen]);
 
   const goUp = () => {
+    // Prevent going above /data
     if (currentPath === '/data') return;
+    
     const parts = currentPath.split('/');
     parts.pop();
     const parent = parts.join('/') || '/data';
-    // Prevent traversing above /data
-    if (parent.length < 5) fetchFolders('/data');
+    
+    // Strict check: if parent became empty or root, force /data
+    if (parent === '/' || parent === '') fetchFolders('/data');
     else fetchFolders(parent);
   };
 
   return html`
     <${Modal} isOpen=${isOpen} onClose=${onClose} title=${title}>
       <div className="flex flex-col h-[500px]">
-        <div className="bg-gray-900/50 p-2 rounded mb-4 text-xs font-mono text-gray-400">
+        <div className="bg-gray-900/50 p-2 rounded mb-4 text-xs font-mono text-gray-400 border border-gray-700">
             ${currentPath}
         </div>
         <div className="flex-1 overflow-y-auto border border-gray-700 rounded-lg bg-gray-900/30 custom-scrollbar">
@@ -53,15 +56,18 @@ const FolderPicker = ({ isOpen, onClose, onSelect, title = "Select Folder" }) =>
           ${!loading && html`
             <div className="divide-y divide-gray-800">
               ${currentPath !== '/data' && html`
-                <button onClick=${goUp} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-gray-400 text-left">
-                  <span className="text-xl">..</span> <span className="text-sm">Up</span>
+                <button onClick=${goUp} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 text-gray-400 text-left transition-colors">
+                  <span className="text-xl font-bold">..</span> <span className="text-sm">Up</span>
                 </button>
+              `}
+              ${items.length === 0 && currentPath === '/data' && html`
+                 <div className="p-4 text-center text-gray-500 text-sm">No folders found in /data</div>
               `}
               ${items.map(item => html`
                 <button 
                   key=${item.path}
                   onClick=${() => fetchFolders(item.path)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-brand-purple/10 text-gray-300 text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-brand-purple/10 text-gray-300 text-left transition-colors"
                 >
                   <${FileIcon} className="w-5 h-5 text-gray-500" />
                   <span className="text-sm font-medium truncate">${item.name}</span>

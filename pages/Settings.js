@@ -17,7 +17,7 @@ const Settings = ({ onMenuClick }) => {
     const [tmdbApiKey, setTmdbApiKey] = useState('');
     const [tmdbLanguage, setTmdbLanguage] = useState('en-US');
     
-    // Strict defaults
+    // Strict defaults based on /data structure
     const [movieRoots, setMovieRoots] = useState(['/data/movies']);
     const [tvRoots, setTvRoots] = useState(['/data/tvshows']);
     
@@ -82,11 +82,14 @@ const Settings = ({ onMenuClick }) => {
                 </div>
 
                 <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-                    <h2 className="text-xl font-bold mb-4 text-white">Library Folders</h2>
+                    <h2 className="text-xl font-bold mb-4 text-white">Library Folders (Container Paths)</h2>
+                    <p className="text-sm text-gray-400 mb-4">
+                        All paths must start with <code>/data</code>. This maps to your Host folder (<code>/home/ubuntu</code>).
+                    </p>
                     <div className="space-y-6">
                         <div>
                             <div className="flex justify-between mb-2">
-                                <span className="text-gray-400 uppercase text-xs font-bold">Movies (Container Path)</span>
+                                <span className="text-gray-400 uppercase text-xs font-bold">Movies Destination</span>
                                 <${Button} onClick=${()=>openPicker('movie')} variant="secondary" className="!py-1 !px-2 text-xs">Add</${Button}>
                             </div>
                             ${movieRoots.map((p,i) => html`
@@ -98,7 +101,7 @@ const Settings = ({ onMenuClick }) => {
                         </div>
                         <div>
                             <div className="flex justify-between mb-2">
-                                <span className="text-gray-400 uppercase text-xs font-bold">TV Shows (Container Path)</span>
+                                <span className="text-gray-400 uppercase text-xs font-bold">TV Shows Destination</span>
                                 <${Button} onClick=${()=>openPicker('tv')} variant="secondary" className="!py-1 !px-2 text-xs">Add</${Button}>
                             </div>
                             ${tvRoots.map((p,i) => html`

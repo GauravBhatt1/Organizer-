@@ -58,29 +58,39 @@ async function connectDB(uri) {
         db = client.db(dbName);
         console.log(`Connected to MongoDB: ${dbName}`);
 
-        // --- MIGRATION: Fix Paths & Settings ---
-        console.log("Running path migration check...");
+        // --- MIGRATION: Enforce /data paths ---
+        console.log("Running path consistency check...");
         
         const settings = await db.collection('settings').findOne({ id: 'global' });
         if (settings) {
-            const fixPathArr = (arr) => (arr || []).map(p => p.startsWith('/host') ? p.replace('/host', '/data') : p);
+            // Helper to replace ANY root that isn't /data with /data (naive replacement for /host)
+            const fixPathArr = (arr) => (arr || []).map(p => {
+                if (p.startsWith('/data')) return p;
+                // Replace /host, /mnt, etc with /data if it looks like a migration
+                if (p.startsWith('/host')) return p.replace('/host', '/data');
+                return path.join('/data', path.basename(p)); // Fallback
+            });
+
             const newMovieRoots = fixPathArr(settings.movieRoots);
             const newTvRoots = fixPathArr(settings.tvRoots);
             
             if (JSON.stringify(newMovieRoots) !== JSON.stringify(settings.movieRoots) || 
                 JSON.stringify(newTvRoots) !== JSON.stringify(settings.tvRoots)) {
+                
                 await db.collection('settings').updateOne({ id: 'global' }, { 
                     $set: { movieRoots: newMovieRoots, tvRoots: newTvRoots } 
                 });
-                console.log("Migrated settings paths from /host to /data");
+                console.log("Migrated settings paths to /data structure");
             }
         }
 
-        // Wipe Items with invalid paths
+        // Wipe Items with invalid paths (anything not starting with /data)
+        // This prevents the UI from trying to organize files that the container can't see.
         const invalidItems = await db.collection('items').countDocuments({ srcPath: { $not: { $regex: /^\/data/ } } });
         if (invalidItems > 0) {
-            console.log(`Found ${invalidItems} invalid path items. Clearing library for rescan...`);
-            await db.collection('items').deleteMany({});
+            console.log(`Found ${invalidItems} items with invalid paths (non-/data). Removing from DB to force rescan...`);
+            await db.collection('items').deleteMany({ srcPath: { $not: { $regex: /^\/data/ } } });
+            // Also clear jobs to avoid confusion
             await db.collection('jobs').deleteMany({});
         }
 
@@ -94,7 +104,7 @@ if (currentConfig.mongoUri) connectDB(currentConfig.mongoUri);
 
 // --- ROUTES ---
 
-// TMDB Proxy - Improved with logging and trimming
+// TMDB Proxy
 app.get('/api/tmdb/search', async (req, res) => {
     const { type, query, key, language } = req.query;
     const safeKey = (key || '').trim();
@@ -121,7 +131,6 @@ app.get('/api/tmdb/search', async (req, res) => {
     }
 });
 
-// TMDB Test
 app.get('/api/tmdb/test', async (req, res) => {
     const apiKey = (req.query.key || '').trim();
     if (!apiKey) return res.status(400).json({ message: 'Missing API Key' });
@@ -168,6 +177,7 @@ app.post('/api/settings', async (req, res) => {
     try {
         const { mongoUri, dbName, ...appSettings } = req.body;
         
+        // Strict Path Validation
         const paths = [...(appSettings.movieRoots || []), ...(appSettings.tvRoots || [])];
         for (const p of paths) {
             if (!isValidDataPath(p)) return res.status(400).json({ message: `Path must start with ${DATA_ROOT}` });
@@ -210,7 +220,6 @@ app.post('/api/scan/start', async (req, res) => {
         };
         const r = await db.collection('jobs').insertOne(job);
         
-        // Ensure error logging catches crashes
         runScanJob(db, r.insertedId, { dryRun, isCopyMode }).catch(e => {
             console.error("Critical Scanner Crash:", e);
             db.collection('jobs').updateOne({ _id: r.insertedId }, { 
