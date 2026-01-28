@@ -25,6 +25,7 @@ const Settings = ({ onMenuClick }) => {
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerType, setPickerType] = useState('movie'); 
     const [isSaving, setIsSaving] = useState(false);
+    const [isResetting, setIsResetting] = useState(false);
 
     useEffect(() => {
         const load = async () => {
@@ -58,6 +59,21 @@ const Settings = ({ onMenuClick }) => {
             } else throw new Error((await res.json()).message);
         } catch (e) { addToast(e.message, 'error'); }
         setIsSaving(false);
+    };
+
+    const handleResetLibrary = async () => {
+        if (!confirm("Are you sure? This will clear all scanned data for the current library configuration. Files on disk will NOT be touched.")) return;
+        
+        setIsResetting(true);
+        try {
+            const res = await fetch('/api/library/reset', { method: 'POST' });
+            if (res.ok) {
+                addToast('Library Data Reset', 'success');
+            } else {
+                throw new Error((await res.json()).message);
+            }
+        } catch (e) { addToast(e.message, 'error'); }
+        setIsResetting(false);
     };
 
     const openPicker = (type) => { setPickerType(type); setPickerOpen(true); };
@@ -115,6 +131,14 @@ const Settings = ({ onMenuClick }) => {
                     <div className="pt-6 mt-6 border-t border-gray-700 space-y-4">
                         <${Toggle} label="Copy files instead of Move" enabled=${isCopyMode} setEnabled=${setIsCopyMode} />
                     </div>
+                </div>
+
+                <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+                     <h2 className="text-xl font-bold mb-4 text-white">Danger Zone</h2>
+                     <p className="text-sm text-gray-400 mb-4">
+                        Resetting the library will remove all scanned data from the database. It will <strong>NOT</strong> delete files from your disk.
+                     </p>
+                     <${Button} onClick=${handleResetLibrary} isLoading=${isResetting} variant="danger">Reset Library Data</${Button}>
                 </div>
             </div>
             <${FolderPicker} isOpen=${pickerOpen} onClose=${()=>setPickerOpen(false)} onSelect=${onPick} />

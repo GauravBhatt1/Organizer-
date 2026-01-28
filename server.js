@@ -8,6 +8,7 @@ import cors from 'cors';
 import { runScanJob } from './lib/scanner.js';
 import { organizeMediaItem } from './lib/organizer.js';
 import { isValidDataPath, DATA_ROOT } from './lib/pathUtils.js';
+import { randomUUID } from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,39 +58,10 @@ async function connectDB(uri) {
         const dbName = currentConfig.dbName || 'jellyfin-organizer';
         db = client.db(dbName);
         console.log(`Connected to MongoDB: ${dbName}`);
-
-        // --- MIGRATION: Enforce /data paths ---
-        console.log("Running path consistency check...");
         
-        const settings = await db.collection('settings').findOne({ id: 'global' });
-        if (settings) {
-            // Helper to replace ANY root that isn't /data with /data (naive replacement for /host)
-            const fixPathArr = (arr) => (arr || []).map(p => {
-                if (p.startsWith('/data')) return p;
-                // Replace /host, /mnt, etc with /data if it looks like a migration
-                if (p.startsWith('/host')) return p.replace('/host', '/data');
-                return path.join('/data', path.basename(p)); // Fallback
-            });
-
-            const newMovieRoots = fixPathArr(settings.movieRoots);
-            const newTvRoots = fixPathArr(settings.tvRoots);
-            
-            if (JSON.stringify(newMovieRoots) !== JSON.stringify(settings.movieRoots) || 
-                JSON.stringify(newTvRoots) !== JSON.stringify(settings.tvRoots)) {
-                
-                await db.collection('settings').updateOne({ id: 'global' }, { 
-                    $set: { movieRoots: newMovieRoots, tvRoots: newTvRoots } 
-                });
-                console.log("Migrated settings paths to /data structure");
-            }
-        }
-
-        // Wipe Items with invalid paths (anything not starting with /data)
-        const invalidItems = await db.collection('items').countDocuments({ srcPath: { $not: { $regex: /^\/data/ } } });
-        if (invalidItems > 0) {
-            console.log(`Found ${invalidItems} items with invalid paths. Removing...`);
-            await db.collection('items').deleteMany({ srcPath: { $not: { $regex: /^\/data/ } } });
-        }
+        // Ensure Indexes
+        await db.collection('items').createIndex({ libraryId: 1, scanId: 1, status: 1, type: 1 });
+        await db.collection('jobs').createIndex({ libraryId: 1, finishedAt: -1 });
 
     } catch (err) {
         console.error('Mongo connection failed:', err.message);
@@ -98,6 +70,25 @@ async function connectDB(uri) {
 }
 
 if (currentConfig.mongoUri) connectDB(currentConfig.mongoUri);
+
+// --- HELPER: Get Active Context ---
+async function getActiveContext() {
+    if (!db) return null;
+    const settings = await db.collection('settings').findOne({ id: 'global' });
+    if (!settings || !settings.libraryId) return null;
+
+    // Find latest COMPLETED scan for this library
+    const lastScan = await db.collection('jobs')
+        .find({ libraryId: settings.libraryId, status: 'completed' })
+        .sort({ finishedAt: -1 })
+        .limit(1)
+        .toArray();
+
+    return {
+        libraryId: settings.libraryId,
+        scanId: lastScan.length > 0 ? lastScan[0]._id : null
+    };
+}
 
 // --- ROUTES ---
 
@@ -180,14 +171,63 @@ app.post('/api/settings', async (req, res) => {
             if (!isValidDataPath(p)) return res.status(400).json({ message: `Path must start with ${DATA_ROOT}` });
         }
 
+        // Logic 1: Determine if Library Roots changed
+        let libraryId = null;
+        if (db) {
+            const currentSettings = await db.collection('settings').findOne({ id: 'global' });
+            if (currentSettings) {
+                const oldRoots = JSON.stringify([...(currentSettings.movieRoots||[]), ...(currentSettings.tvRoots||[])].sort());
+                const newRoots = JSON.stringify(paths.sort());
+                libraryId = currentSettings.libraryId;
+
+                // If roots changed, NEW LIBRARY ID
+                if (oldRoots !== newRoots) {
+                    libraryId = randomUUID();
+                    console.log("Library roots changed. Generated new libraryId:", libraryId);
+                }
+            } else {
+                libraryId = randomUUID(); // First time setup
+            }
+        }
+
         const old = loadConfig();
         if ((mongoUri && mongoUri !== old.mongoUri) || (dbName && dbName !== old.dbName)) {
             currentConfig = saveConfig({ mongoUri, dbName });
             if (mongoUri !== old.mongoUri) await connectDB(mongoUri);
             else if (db) db = client.db(dbName);
+            
+            // If DB changed, ensure we have a library ID for the new DB context
+            if (db) {
+                const newDbSettings = await db.collection('settings').findOne({ id: 'global' });
+                if (!newDbSettings) {
+                    libraryId = randomUUID();
+                } else if (!libraryId) {
+                     libraryId = newDbSettings.libraryId || randomUUID();
+                }
+            }
         }
-        if (db) await db.collection('settings').updateOne({ id: 'global' }, { $set: appSettings }, { upsert: true });
-        res.json({ success: true });
+
+        if (db) {
+            await db.collection('settings').updateOne(
+                { id: 'global' }, 
+                { $set: { ...appSettings, libraryId } }, 
+                { upsert: true }
+            );
+        }
+        res.json({ success: true, libraryId });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+app.post('/api/library/reset', async (req, res) => {
+    if (!db) return res.status(503).json({ message: 'DB Disconnected' });
+    try {
+        const settings = await db.collection('settings').findOne({ id: 'global' });
+        if (!settings?.libraryId) return res.status(400).json({ message: 'No active library to reset' });
+
+        await db.collection('items').deleteMany({ libraryId: settings.libraryId });
+        await db.collection('jobs').deleteMany({ libraryId: settings.libraryId });
+        
+        res.json({ success: true, message: 'Library data reset.' });
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
@@ -205,11 +245,16 @@ app.post('/api/organize', async (req, res) => {
 app.post('/api/scan/start', async (req, res) => {
     if (!db) return res.status(503).json({ message: 'DB Disconnected' });
     try {
+        const settings = await db.collection('settings').findOne({ id: 'global' });
+        if (!settings?.libraryId) return res.status(400).json({ message: "Settings not initialized" });
+
         const active = await db.collection('jobs').findOne({ status: 'running' });
         if (active) return res.status(409).json({ message: 'Scan running' });
 
         const job = {
-            status: 'running', startedAt: new Date(),
+            libraryId: settings.libraryId, // Scoped to current library config
+            status: 'running', 
+            startedAt: new Date(),
             totalFiles: 0, processedFiles: 0,
             stats: { movies: 0, tv: 0, uncategorized: 0, errors: 0 },
             logs: [], errors: []
@@ -234,25 +279,42 @@ app.post('/api/scan/start', async (req, res) => {
 
 app.get('/api/scan/current', async (req, res) => {
     if (!db) return res.json(null);
-    const jobs = await db.collection('jobs').find().sort({ startedAt: -1 }).limit(1).toArray();
+    // Find latest job regardless of libraryId to show status, 
+    // OR restrict to current library. Restricting is safer for "current view" logic.
+    const settings = await db.collection('settings').findOne({ id: 'global' });
+    if (!settings?.libraryId) return res.json(null);
+
+    const jobs = await db.collection('jobs')
+        .find({ libraryId: settings.libraryId })
+        .sort({ startedAt: -1 })
+        .limit(1).toArray();
     res.json(jobs[0] || null);
 });
 
 app.get('/api/dashboard', async (req, res) => {
-    if (!db) return res.json({ movies: 0, tvShows: 0, uncategorized: 0 });
     try {
+        const ctx = await getActiveContext();
+        if (!ctx || !ctx.scanId) {
+            return res.json({ movies: 0, tvShows: 0, uncategorized: 0, message: "No completed scans for current library." });
+        }
+
         const [movies, tv, uncategorized] = await Promise.all([
-            db.collection('items').countDocuments({ type: 'movie', status: 'organized' }),
-            db.collection('items').countDocuments({ type: 'tv', status: 'organized' }),
-            db.collection('items').countDocuments({ status: 'uncategorized' })
+            db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'movie', status: 'organized' }),
+            db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'tv', status: 'organized' }),
+            db.collection('items').countDocuments({ libraryId: ctx.libraryId, scanId: ctx.scanId, status: 'uncategorized' })
         ]);
         res.json({ movies, tvShows: tv, uncategorized });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/uncategorized', async (req, res) => {
-    if (!db) return res.json([]);
-    const items = await db.collection('items').find({ status: 'uncategorized' }).limit(100).toArray();
+    const ctx = await getActiveContext();
+    if (!ctx || !ctx.scanId) return res.json([]);
+
+    const items = await db.collection('items')
+        .find({ libraryId: ctx.libraryId, scanId: ctx.scanId, status: 'uncategorized' })
+        .limit(100)
+        .toArray();
     res.json(items.map(i => ({ id: i._id, fileName: path.basename(i.srcPath), filePath: i.srcPath })));
 });
 
@@ -282,9 +344,11 @@ app.get('/api/fs/validate', (req, res) => {
 
 app.get('/api/movies', async (req, res) => {
     try {
-        if (!db) return res.json([]);
+        const ctx = await getActiveContext();
+        if (!ctx || !ctx.scanId) return res.json([]);
+
         const movies = await db.collection('items')
-            .find({ type: 'movie', status: 'organized' })
+            .find({ libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'movie', status: 'organized' })
             .sort({ 'tmdb.title': 1 }).limit(100).toArray();
         res.json(movies.map(m => ({
             id: m._id, title: m.tmdb?.title, year: m.tmdb?.year,
@@ -295,9 +359,11 @@ app.get('/api/movies', async (req, res) => {
 
 app.get('/api/tvshows', async (req, res) => {
     try {
-        if (!db) return res.json([]);
+        const ctx = await getActiveContext();
+        if (!ctx || !ctx.scanId) return res.json([]);
+
         const shows = await db.collection('items').aggregate([
-            { $match: { type: 'tv', status: 'organized' } },
+            { $match: { libraryId: ctx.libraryId, scanId: ctx.scanId, type: 'tv', status: 'organized' } },
             { $group: {
                 _id: "$tmdb.id", 
                 title: { $first: "$tmdb.title" },
