@@ -353,6 +353,8 @@ app.get('/api/uncategorized', async (req, res) => {
             id: i._id, 
             fileName: path.basename(i.srcPath), 
             filePath: i.srcPath,
+            cleanTitle: i.cleanTitle, // Helper for UI
+            autoIdReason: i.autoIdReason, // Show why it wasn't auto-moved
             quality
         };
     }));

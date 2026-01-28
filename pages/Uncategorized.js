@@ -6,7 +6,7 @@ import Modal from '../components/Modal.js';
 import Button from '../components/Button.js';
 import Input from '../components/Input.js';
 import Spinner from '../components/Spinner.js';
-import { SearchIcon, FileIcon, CheckCircleIcon } from '../lib/icons.js';
+import { SearchIcon, FileIcon, ExclamationIcon } from '../lib/icons.js';
 import { useToast } from '../hooks/useToast.js';
 import { searchMovies } from '../lib/tmdb.js';
 
@@ -35,7 +35,8 @@ const Uncategorized = ({ onMenuClick, onStatsUpdate }) => {
 
     const openSearchModal = (item) => {
         setSelectedItem(item);
-        setSearchQuery(item.fileName.replace(/\.(mkv|mp4|avi)$/i, '').replace(/[\._]/g, ' '));
+        // Use the parser's clean title if available, else clean basic extension
+        setSearchQuery(item.cleanTitle || item.fileName.replace(/\.(mkv|mp4|avi)$/i, '').replace(/[\._]/g, ' '));
         setSearchResults([]);
     };
     
@@ -84,12 +85,7 @@ const Uncategorized = ({ onMenuClick, onStatsUpdate }) => {
             if (res.ok) {
                 addToast(`Successfully moved to: ${data.newPath}`, 'success');
                 setUncategorizedItems(prev => prev.filter(item => item.id !== selectedItem.id));
-                
-                // UPDATE GLOBAL STATS IMMEDIATELY
-                if (data.stats && onStatsUpdate) {
-                    onStatsUpdate(data.stats);
-                }
-                
+                if (data.stats && onStatsUpdate) onStatsUpdate(data.stats);
                 closeSearchModal();
             } else {
                 throw new Error(data.message || 'Unknown error');
@@ -117,20 +113,23 @@ const Uncategorized = ({ onMenuClick, onStatsUpdate }) => {
                 ${loading ? html`<div className="flex justify-center pt-20"><${Spinner} size="lg"/></div>` : html`
                     <ul className="space-y-3">
                         ${uncategorizedItems.map(item => html`
-                            <li key=${item._id || item.id} className="bg-gray-800 p-4 rounded-lg flex items-center justify-between">
-                                <div className="flex items-center gap-4 overflow-hidden">
-                                    <${FileIcon} className="w-6 h-6 text-gray-400 flex-shrink-0" />
-                                    <div className="truncate">
-                                        <div className="flex items-center gap-2">
-                                            <p className="font-mono text-white truncate">${item.fileName}</p>
-                                            ${item.quality && html`
-                                                <span className="text-xs bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded border border-gray-600 font-bold">${item.quality}</span>
+                            <li key=${item._id || item.id} className="bg-gray-800 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="flex items-start gap-4 overflow-hidden">
+                                    <${FileIcon} className="w-6 h-6 text-gray-400 flex-shrink-0 mt-1" />
+                                    <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                                            <p className="font-mono text-white truncate text-sm sm:text-base">${item.fileName}</p>
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-500 border border-yellow-500/30">MANUAL REVIEW</span>
+                                            ${item.autoIdReason && html`
+                                                <span className="text-[10px] font-mono text-gray-400 border border-gray-600 px-1.5 rounded" title="Reason for manual review">
+                                                    ${item.autoIdReason}
+                                                </span>
                                             `}
                                         </div>
-                                        <p className="text-sm text-gray-500 font-mono truncate">${item.filePath}</p>
+                                        <p className="text-xs text-gray-500 font-mono break-all">${item.filePath}</p>
                                     </div>
                                 </div>
-                                <${Button} onClick=${() => openSearchModal(item)} icon=${html`<${SearchIcon} />`} className="flex-shrink-0">
+                                <${Button} onClick=${() => openSearchModal(item)} icon=${html`<${SearchIcon} />`} className="flex-shrink-0 self-end sm:self-center">
                                     Identify
                                 </${Button}>
                             </li>
@@ -138,7 +137,7 @@ const Uncategorized = ({ onMenuClick, onStatsUpdate }) => {
                         ${uncategorizedItems.length === 0 && html`
                           <div className="text-center py-10 text-gray-500">
                             <p className="text-lg">No uncategorized items found.</p>
-                            <p>Your library is perfectly organized!</p>
+                            <p>Everything has been automatically organized!</p>
                           </div>
                         `}
                     </ul>
